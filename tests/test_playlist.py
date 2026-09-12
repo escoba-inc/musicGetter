@@ -8,8 +8,10 @@ from src.playlist import PlaylistGenerator, sanitize_filename
 
 class TestPlaylistGenerator(unittest.TestCase):
     def test_sanitize_filename(self):
-        self.assertEqual(sanitize_filename("Rock & Roll: Best Hits?"), "Rock & Roll- Best Hits-")
+        self.assertEqual(sanitize_filename("Rock & Roll: Best Hits?"), "Rock & Roll- Best Hits")
         self.assertEqual(sanitize_filename("Artist/Track"), "Artist-Track")
+        self.assertEqual(sanitize_filename("Track Title..."), "Track Title")
+        self.assertEqual(sanitize_filename("???", fallback="Unknown"), "Unknown")
 
     def test_generate_m3u8(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

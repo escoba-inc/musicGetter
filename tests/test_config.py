@@ -60,14 +60,30 @@ class TestConfig(unittest.TestCase):
 
     def test_load_config_numbered_playlists(self):
         env = {
-            "PLAYLIST_1": "https://music.youtube.com/playlist?list=PL_A | List A",
-            "PLAYLIST_2": "https://music.youtube.com/playlist?list=PL_B",
+            "PLAYLIST_1": "https://music.youtube.com/playlist?list=PL_1 | List 1",
+            "PLAYLIST_2": "https://music.youtube.com/playlist?list=PL_2 | List 2",
+            "PLAYLIST_10": "https://music.youtube.com/playlist?list=PL_10 | List 10",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            cfg = load_config()
+            self.assertEqual(len(cfg.playlists), 3)
+            # Natural numeric sort: 1, then 2, then 10 (not 1, 10, 2)
+            self.assertEqual(cfg.playlists[0].name, "List 1")
+            self.assertEqual(cfg.playlists[1].name, "List 2")
+            self.assertEqual(cfg.playlists[2].name, "List 10")
+
+    def test_playlist_deduplication(self):
+        env = {
+            "PLAYLIST_1": "https://music.youtube.com/playlist?list=PL_SAME | First Name",
+            "PLAYLIST_2": "https://music.youtube.com/playlist?list=PL_SAME | Duplicate",
+            "PLAYLIST_3": "https://music.youtube.com/playlist?list=PL_DIFF",
         }
         with patch.dict(os.environ, env, clear=True):
             cfg = load_config()
             self.assertEqual(len(cfg.playlists), 2)
-            self.assertEqual(cfg.playlists[0].name, "List A")
-            self.assertEqual(cfg.playlists[1].url, "https://music.youtube.com/playlist?list=PL_B")
+            self.assertEqual(cfg.playlists[0].url, "https://music.youtube.com/playlist?list=PL_SAME")
+            self.assertEqual(cfg.playlists[0].name, "First Name")
+            self.assertEqual(cfg.playlists[1].url, "https://music.youtube.com/playlist?list=PL_DIFF")
 
     def test_load_config_from_yaml(self):
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
