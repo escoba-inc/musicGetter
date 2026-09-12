@@ -19,7 +19,7 @@ class LyricsResult:
 
 
 class LyricsManager:
-    USER_AGENT = "MusicGetter/1.0.0 (https://github.com/ultreia/musicGetter)"
+    USER_AGENT = "MusicGetter/1.0.0 (https://github.com/escoba-inc/musicGetter)"
 
     @classmethod
     def fetch_from_lrclib(
