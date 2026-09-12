@@ -31,7 +31,7 @@ services:
       - ./music:/music            # Target music folder shared with Navidrome
       - ./config:/config          # Stores SQLite database (library.db) & optional cookies.txt
 
-  # Navidrome Music Server (Uncomment if deploying together)
+  # Navidrome Music Server (Runs alongside MusicGetter)
   navidrome:
     image: deluan/navidrome:latest
     container_name: navidrome

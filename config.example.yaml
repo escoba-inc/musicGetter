@@ -37,6 +37,9 @@ organization:
   generate_m3u8: true
   playlists_dir: "/music/playlists"
 
+  # Automatically delete tracks and sidecar .lrc files when removed from all playlists
+  cleanup_removed_tracks: true
+
 # Lyrics settings
 lyrics:
   # Enable fetching and embedding lyrics
