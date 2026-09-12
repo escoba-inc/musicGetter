@@ -120,16 +120,23 @@ class Database:
         youtube_id: str,
         file_path: str,
         title: str,
-        artist: str
+        artist: str,
+        album: Optional[str] = None,
+        has_lyrics: Optional[bool] = None
     ):
-        """Update track path, title, and artist after reorganization or migration."""
+        """Update track path, title, artist, album, and lyrics flag after reorganization or migration."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
+            lyrics_val = 1 if has_lyrics is True else (0 if has_lyrics is False else None)
             cursor.execute("""
                 UPDATE tracks
-                SET file_path = ?, title = ?, artist = ?
+                SET file_path = ?,
+                    title = ?,
+                    artist = ?,
+                    album = COALESCE(?, album),
+                    has_lyrics = COALESCE(?, has_lyrics)
                 WHERE youtube_id = ?
-            """, (file_path, title, artist, youtube_id))
+            """, (file_path, title, artist, album, lyrics_val, youtube_id))
             conn.commit()
 
     def update_playlist(

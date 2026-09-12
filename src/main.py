@@ -289,6 +289,9 @@ class MusicGetter:
             # Remove from database
             self.db.delete_track(yt_id)
 
+        def _cleanup_empty_directories(self, directory: str):
+            pass
+
     def _cleanup_empty_directories(self, directory: str):
         """Recursively delete empty folders up to library_dir."""
         try:
@@ -310,28 +313,36 @@ class MusicGetter:
 
     def migrate_multi_artist_tracks(self):
         """
-        Scan existing library tracks and automatically migrate any tracks saved under
-        joined collaboration artists (e.g. 'Jim Yosef & Scarlett', 'DePol, Pol Gutierrez Molina')
-        to their primary artist folder (e.g. 'Jim Yosef', 'DePol').
+        Scan existing library tracks and automatically migrate:
+        1. Joined collaboration artists to their primary artist folder (e.g. 'Jim Yosef & Scarlett' -> 'Jim Yosef').
+        2. Albums with '- Single' / '(Single)' to clean 'Singles' album folder.
+        3. Titles containing '- Single' / '(Single)'.
+        4. Populate missing .lrc synced lyrics.
         """
         all_tracks = self.db.get_all_tracks()
         migrated_count = 0
 
         for track in all_tracks:
-            old_artist = track.get("artist", "")
-            primary_artist, extra = TitleCleaner.extract_primary_artist(old_artist)
-            if not extra or primary_artist == old_artist:
-                continue
-
             yt_id = track["youtube_id"]
             old_path = track["file_path"]
             if not os.path.exists(old_path):
                 continue
 
+            old_artist = track.get("artist", "")
+            primary_artist, extra = TitleCleaner.extract_primary_artist(old_artist)
+
             old_title = track.get("title", "")
             new_title = old_title
+            new_title = re.sub(r"\s*[-–—]\s*(?:single|ep)$", "", new_title, flags=re.IGNORECASE).strip()
+            new_title = re.sub(r"[\(\[\{]\s*(?:single|ep)\s*[\)\]\}]", "", new_title, flags=re.IGNORECASE).strip()
             if extra and not re.search(r"[\(\[\{]\s*(?:feat|ft)\.?\s+", new_title, re.IGNORECASE):
                 new_title = f"{new_title} (feat. {extra})"
+
+            old_album = track.get("album", "Singles")
+            if re.search(r"(?:[-–—\(\[]\s*single\s*[\)\]]?|^single$)", old_album, re.IGNORECASE):
+                new_album = "Singles"
+            else:
+                new_album = old_album
 
             track_num = None
             old_base_name = os.path.basename(old_path)
@@ -345,69 +356,96 @@ class MusicGetter:
             _, ext = os.path.splitext(old_path)
             new_path = self._determine_destination_path(
                 artist=primary_artist,
-                album=track.get("album", "Singles"),
+                album=new_album,
                 title=new_title,
                 track_number=track_num,
                 audio_ext=ext
             )
 
-            if os.path.abspath(new_path) == os.path.abspath(old_path):
-                continue
+            path_changed = (os.path.abspath(new_path) != os.path.abspath(old_path))
+            tags_changed = (primary_artist != old_artist or new_album != old_album or new_title != old_title)
 
-            try:
-                dest_dir = os.path.dirname(new_path)
-                os.makedirs(dest_dir, exist_ok=True)
+            current_path = old_path
+            if path_changed:
+                try:
+                    dest_dir = os.path.dirname(new_path)
+                    os.makedirs(dest_dir, exist_ok=True)
 
-                # Move audio file
-                shutil.move(old_path, new_path)
+                    shutil.move(old_path, new_path)
 
-                # Move sidecar .lrc if exists
-                old_base, _ = os.path.splitext(old_path)
-                new_base, _ = os.path.splitext(new_path)
-                if os.path.exists(f"{old_base}.lrc"):
-                    shutil.move(f"{old_base}.lrc", f"{new_base}.lrc")
+                    old_base, _ = os.path.splitext(old_path)
+                    new_base, _ = os.path.splitext(new_path)
+                    if os.path.exists(f"{old_base}.lrc"):
+                        shutil.move(f"{old_base}.lrc", f"{new_base}.lrc")
 
-                # Move cover.jpg if not yet in target album dir
-                old_dir = os.path.dirname(old_path)
-                old_cover = os.path.join(old_dir, "cover.jpg")
-                new_cover = os.path.join(dest_dir, "cover.jpg")
-                if os.path.exists(old_cover) and not os.path.exists(new_cover):
-                    shutil.copy2(old_cover, new_cover)
+                    old_dir = os.path.dirname(old_path)
+                    old_cover = os.path.join(old_dir, "cover.jpg")
+                    new_cover = os.path.join(dest_dir, "cover.jpg")
+                    if os.path.exists(old_cover) and not os.path.exists(new_cover):
+                        shutil.copy2(old_cover, new_cover)
 
-                # Update tags with primary artist
-                AudioTagger.apply_tags(
-                    file_path=new_path,
-                    title=new_title,
-                    artist=primary_artist,
-                    album=track.get("album", "Singles"),
-                    album_artist=primary_artist
-                )
+                    self._cleanup_empty_directories(old_dir)
+                    current_path = new_path
+                except Exception as e:
+                    logger.warning(f"Failed to move file {old_path} to {new_path}: {e}")
+                    continue
 
-                # Update database
-                self.db.update_track_metadata(
-                    youtube_id=yt_id,
-                    file_path=new_path,
-                    title=new_title,
-                    artist=primary_artist
-                )
+            if path_changed or tags_changed:
+                try:
+                    AudioTagger.apply_tags(
+                        file_path=current_path,
+                        title=new_title,
+                        artist=primary_artist,
+                        album=new_album,
+                        album_artist=primary_artist
+                    )
+                    self.db.update_track_metadata(
+                        youtube_id=yt_id,
+                        file_path=current_path,
+                        title=new_title,
+                        artist=primary_artist,
+                        album=new_album
+                    )
+                    migrated_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to update tags for {current_path}: {e}")
 
-                # Remove old empty directory
-                self._cleanup_empty_directories(old_dir)
-
-                logger.info(f"Migrated joined artist: '{old_artist}' -> '{primary_artist}' ({new_path})")
-                migrated_count += 1
-            except Exception as e:
-                logger.warning(f"Failed to migrate track {old_path} to {new_path}: {e}")
+            # Check for missing sidecar .lrc
+            base_cur, _ = os.path.splitext(current_path)
+            lrc_file = f"{base_cur}.lrc"
+            if self.config.lyrics.save_lrc and not os.path.exists(lrc_file):
+                try:
+                    l_res = LyricsManager.get_lyrics(
+                        title=new_title,
+                        artist=primary_artist,
+                        album=new_album,
+                        duration=track.get("duration"),
+                        use_lrclib=self.config.lyrics.use_lrclib,
+                        use_yt_subs=self.config.lyrics.use_youtube_subtitles
+                    )
+                    if l_res and l_res.synced_lyrics:
+                        LyricsManager.save_lrc_file(current_path, l_res.synced_lyrics)
+                        self.db.update_track_metadata(
+                            youtube_id=yt_id,
+                            file_path=current_path,
+                            title=new_title,
+                            artist=primary_artist,
+                            album=new_album,
+                            has_lyrics=True
+                        )
+                except Exception as e:
+                    logger.debug(f"Failed to refresh lyrics for {new_title}: {e}")
 
         if migrated_count > 0:
-            logger.info(f"Successfully migrated {migrated_count} multi-artist track(s) to primary artist folders.")
-            for pl in self.db.get_all_playlists():
-                tracks = self.db.get_playlist_tracks(pl["playlist_id"])
-                PlaylistGenerator.write_m3u8(
-                    output_dir=self.config.paths.playlists_dir,
-                    playlist_name=pl["name"],
-                    tracks=tracks
-                )
+            logger.info(f"Successfully migrated {migrated_count} library track(s) (artists, singles & tags).")
+            if self.config.organization.generate_m3u8:
+                for pl in self.db.get_all_playlists():
+                    tracks = self.db.get_playlist_tracks(pl["playlist_id"])
+                    PlaylistGenerator.generate_m3u8(
+                        playlist_name=pl["name"],
+                        tracks=tracks,
+                        playlists_dir=self.config.organization.playlists_dir
+                    )
 
     def sync_all(self):
         """Run synchronization across all configured playlists and prune removed songs."""
