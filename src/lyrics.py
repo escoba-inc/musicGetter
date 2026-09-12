@@ -51,6 +51,10 @@ class LyricsManager:
                 data = resp.json()
                 synced = data.get("syncedLyrics")
                 plain = data.get("plainLyrics")
+                item_dur = data.get("duration")
+                # If duration difference > 4 seconds, synced lyrics will be off (e.g. music video intro)
+                if duration and item_dur and abs(item_dur - duration) > 4.0:
+                    synced = None
                 if synced or plain:
                     return LyricsResult(
                         synced_lyrics=synced,
@@ -70,13 +74,37 @@ class LyricsManager:
             if search_resp.status_code == 200:
                 results = search_resp.json()
                 if results and isinstance(results, list):
-                    first = results[0]
-                    synced = first.get("syncedLyrics")
-                    plain = first.get("plainLyrics")
-                    if synced or plain:
+                    best_synced = None
+                    best_plain = None
+                    min_dur_diff = float("inf")
+
+                    for item in results:
+                        s_lyrics = item.get("syncedLyrics")
+                        p_lyrics = item.get("plainLyrics")
+                        item_dur = item.get("duration")
+
+                        dur_diff = abs(item_dur - duration) if (duration and item_dur) else 0.0
+
+                        # Prioritize candidates with syncedLyrics within 4s of audio duration
+                        if s_lyrics and (not duration or dur_diff <= 4.0):
+                            if dur_diff < min_dur_diff:
+                                min_dur_diff = dur_diff
+                                best_synced = s_lyrics
+                                best_plain = p_lyrics or best_plain
+
+                        if p_lyrics and not best_plain:
+                            best_plain = p_lyrics
+
+                    if best_synced:
                         return LyricsResult(
-                            synced_lyrics=synced,
-                            plain_lyrics=plain,
+                            synced_lyrics=best_synced,
+                            plain_lyrics=best_plain,
+                            source="lrclib"
+                        )
+                    elif best_plain:
+                        return LyricsResult(
+                            synced_lyrics=None,
+                            plain_lyrics=best_plain,
                             source="lrclib"
                         )
 
@@ -143,7 +171,15 @@ class LyricsManager:
                 clean_text = re.sub(r"\s+", " ", clean_text).strip()
 
                 # Deduplicate rolling captions
-                if clean_text and clean_text.lower() != last_clean_text.lower():
+                if clean_text:
+                    if last_clean_text and clean_text.lower() == last_clean_text.lower():
+                        continue
+                    if last_clean_text and clean_text.lower().startswith(last_clean_text.lower()):
+                        if lrc_lines:
+                            lrc_lines[-1] = f"{lrc_lines[-1].split(' ', 1)[0]} {clean_text}"
+                            plain_lines[-1] = clean_text
+                            last_clean_text = clean_text
+                            continue
                     lrc_lines.append(f"{ts} {clean_text}")
                     plain_lines.append(clean_text)
                     last_clean_text = clean_text
@@ -171,15 +207,20 @@ class LyricsManager:
         use_yt_subs: bool = True
     ) -> LyricsResult:
         """
-        Orchestrate lyrics retrieval:
-        1. Query LRCLIB if enabled
-        2. Fallback to YouTube VTT subtitle if LRCLIB returns nothing and VTT is available
+        Orchestrate lyrics retrieval with intelligent sync hierarchy:
+        1. Tier 1: Query LRCLIB for verified synced lyrics matching track duration (<= 4s diff).
+        2. Tier 2: If LRCLIB has no synced lyrics (or only plain text), fallback to YouTube VTT captions!
+                   YouTube subtitles have timestamps that match the downloaded video audio.
+        3. Tier 3: If no synced lyrics exist anywhere, fallback to LRCLIB plain text.
         """
+        lrclib_res = None
         if use_lrclib:
             lrclib_res = cls.fetch_from_lrclib(title, artist, album, duration)
-            if lrclib_res and (lrclib_res.synced_lyrics or lrclib_res.plain_lyrics):
+            # Tier 1: Verified synced lyrics from studio track
+            if lrclib_res and lrclib_res.synced_lyrics:
                 return lrclib_res
 
+        # Tier 2: YouTube Subtitles (timestamped lyrics matching downloaded audio)
         if use_yt_subs and vtt_subtitle_path and os.path.exists(vtt_subtitle_path):
             try:
                 with open(vtt_subtitle_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -189,6 +230,10 @@ class LyricsManager:
                     return sub_res
             except Exception as e:
                 logger.warning(f"Error parsing subtitle file {vtt_subtitle_path}: {e}")
+
+        # Tier 3: Fallback to LRCLIB plain text if no synced lyrics could be found
+        if lrclib_res and lrclib_res.plain_lyrics:
+            return lrclib_res
 
         return LyricsResult()
 

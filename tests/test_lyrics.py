@@ -51,20 +51,67 @@ Third line here
             with open(saved_path, "r") as f:
                 self.assertEqual(f.read().strip(), lyrics_content)
 
+
     @unittest.mock.patch("src.lyrics.requests.get")
     def test_fetch_from_lrclib(self, mock_get):
         mock_resp = unittest.mock.MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
             "syncedLyrics": "[00:10.00] Line from LRCLIB",
-            "plainLyrics": "Line from LRCLIB"
+            "plainLyrics": "Line from LRCLIB",
+            "duration": 180
         }
         mock_get.return_value = mock_resp
 
-        res = LyricsManager.fetch_from_lrclib("Song", "Artist")
+        res = LyricsManager.fetch_from_lrclib("Song", "Artist", duration=180)
         self.assertIsNotNone(res)
         self.assertEqual(res.source, "lrclib")
         self.assertEqual(res.synced_lyrics, "[00:10.00] Line from LRCLIB")
+
+    @unittest.mock.patch("src.lyrics.requests.get")
+    def test_fetch_from_lrclib_duration_mismatch(self, mock_get):
+        mock_resp = unittest.mock.MagicMock()
+        mock_resp.status_code = 200
+        # Track duration on YouTube is 180s, but LRCLIB returns version of 210s (e.g. music video intro)
+        mock_resp.json.return_value = {
+            "syncedLyrics": "[00:10.00] Line from LRCLIB",
+            "plainLyrics": "Line from LRCLIB",
+            "duration": 210
+        }
+        mock_get.return_value = mock_resp
+
+        res = LyricsManager.fetch_from_lrclib("Song", "Artist", duration=180)
+        self.assertIsNotNone(res)
+        # Synced lyrics should be rejected due to > 4s duration mismatch!
+        self.assertIsNone(res.synced_lyrics)
+        self.assertEqual(res.plain_lyrics, "Line from LRCLIB")
+
+    @unittest.mock.patch("src.lyrics.LyricsManager.fetch_from_lrclib")
+    def test_get_lyrics_fallback_to_yt_when_lrclib_plain(self, mock_lrclib):
+        # LRCLIB only has plain text (no timestamps)
+        mock_lrclib.return_value = unittest.mock.MagicMock(
+            synced_lyrics=None,
+            plain_lyrics="Plain text only",
+            source="lrclib"
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            vtt_file = os.path.join(tmp_dir, "sub.vtt")
+            with open(vtt_file, "w") as f:
+                f.write("WEBVTT\n\n00:00:02.000 --> 00:00:05.000\nSynced Subtitle Line\n")
+
+            res = LyricsManager.get_lyrics(
+                title="Song",
+                artist="Artist",
+                duration=180,
+                vtt_subtitle_path=vtt_file,
+                use_lrclib=True,
+                use_yt_subs=True
+            )
+            # Should have chosen YouTube subtitles to get synced timestamps!
+            self.assertIsNotNone(res.synced_lyrics)
+            self.assertEqual(res.source, "youtube_subtitles")
+            self.assertIn("[00:02.00] Synced Subtitle Line", res.synced_lyrics)
 
 
 if __name__ == "__main__":
