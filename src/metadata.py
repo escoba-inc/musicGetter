@@ -283,6 +283,12 @@ class MetadataEnricher:
                 result.artwork_bytes = cls.process_youtube_thumbnail(raw_thumbnail_bytes)
             return result
 
+        # If Deezer returned metadata without artwork, keep Deezer metadata but fallback artwork
+        if deezer_result:
+            if raw_thumbnail_bytes:
+                deezer_result.artwork_bytes = cls.process_youtube_thumbnail(raw_thumbnail_bytes)
+            return deezer_result
+
         # 3. Fallback to cleaned YouTube metadata + cropped thumbnail
         fallback_art = None
         if raw_thumbnail_bytes:
