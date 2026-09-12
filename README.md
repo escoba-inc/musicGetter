@@ -17,7 +17,7 @@
 - **🔁 Deduplication & Multi-Playlist Support**: Add as many playlists as you want. Tracks shared between multiple playlists are downloaded once and mapped into Navidrome via `.m3u8` playlist files.
 - **📁 Clean Navidrome Organization**: Organizes files into `/music/Artist/Album/01 - Title.opus` with compilation album artist handling (`Various Artists`) so 100 one-track playlist artists don't clutter your Navidrome library view.
 - **⏰ Daily Background Sync**: Runs continuously in a Docker container, syncing new playlist additions once daily at your chosen time (e.g. `03:00`), plus immediate sync on startup.
-- **🐳 Docker & Permission Ready**: Includes full `PUID`/`PGID` support so downloaded files on Linux, unRAID, Synology, or TrueNAS maintain your host user's permissions.
+- **🐳 Docker Ready**: Deploy instantly with standard `docker compose up -d` with zero complex setup.
 
 ---
 
@@ -43,8 +43,6 @@ services:
     container_name: musicgetter
     restart: unless-stopped
     environment:
-      - PUID=1000
-      - PGID=1000
       # 🎵 Add as many playlists as you want (URL or URL | Custom Name):
       - PLAYLIST_1=https://music.youtube.com/playlist?list=PLrEnWoR732-B41U5c81p5G5vG17j61oTz | Favorite Beats
       - PLAYLIST_2=https://www.youtube.com/playlist?list=PL4fGSIFgk5t2KqZpQo78jB3iS8s5sN1b8 | Lo-Fi Chill
@@ -90,7 +88,7 @@ All options can be defined directly under `environment:` in `docker-compose.yml`
 | `SAVE_COVER_JPG` | `"true"` | Save `cover.jpg` in album folders for Navidrome. |
 | `COMPILATION_ALBUM_ARTIST` | `"Various Artists"` | Album Artist tag for playlist tracks to keep Navidrome's Artists tab clean. |
 | `STRUCTURE` | `"standard"` | `"standard"` (`Artist/Album/Track.ext`) or `"flat"`. |
-| `PUID` / `PGID` | `1000` / `1000` | Host user/group ID for proper file permissions. |
+| `PUID` / `PGID` | *(optional)* | Optional host user/group ID if you run specialized NAS permissions. |
 
 ---
 
