@@ -4,6 +4,7 @@ import argparse
 import logging
 import os
 import shutil
+import signal
 import sys
 import tempfile
 import time
@@ -44,9 +45,9 @@ class MusicGetter:
         audio_ext: str
     ) -> str:
         """Construct the target file path inside library_dir."""
-        safe_artist = sanitize_filename(artist)
-        safe_album = sanitize_filename(album or "Singles")
-        safe_title = sanitize_filename(title)
+        safe_artist = sanitize_filename(artist, fallback="Unknown Artist")
+        safe_album = sanitize_filename(album or "Singles", fallback="Singles")
+        safe_title = sanitize_filename(title, fallback="Unknown Title")
 
         if self.config.organization.structure == "flat":
             filename = f"{safe_artist} - {safe_title}{audio_ext}"
@@ -91,117 +92,123 @@ class MusicGetter:
 
                 logger.info(f"[{index}/{len(info.entries)}] Downloading: {video_title} ({yt_id})")
 
-                # Step 1: Download track audio, thumbnail, subtitles
-                downloaded = self.downloader.download_track(
-                    youtube_id=yt_id,
-                    temp_dir=temp_work_dir,
-                    audio_format=self.config.audio.format,
-                    download_subs=self.config.lyrics.use_youtube_subtitles,
-                    subtitle_languages=self.config.lyrics.subtitle_languages
-                )
+                try:
+                    # Step 1: Download track audio, thumbnail, subtitles
+                    downloaded = self.downloader.download_track(
+                        youtube_id=yt_id,
+                        temp_dir=temp_work_dir,
+                        audio_format=self.config.audio.format,
+                        download_subs=self.config.lyrics.use_youtube_subtitles,
+                        subtitle_languages=self.config.lyrics.subtitle_languages
+                    )
 
-                if not downloaded or not os.path.exists(downloaded.audio_path):
-                    logger.error(f"Failed to download audio for {video_title} ({yt_id})")
-                    continue
+                    if not downloaded or not os.path.exists(downloaded.audio_path):
+                        logger.error(f"Failed to download audio for {video_title} ({yt_id})")
+                        continue
 
-                # Step 2: Clean title and artist
-                clean_meta = TitleCleaner.parse_artist_and_title(
-                    video_title=downloaded.raw_title or video_title,
-                    channel_name=downloaded.channel or uploader,
-                    yt_track=downloaded.yt_track,
-                    yt_artist=downloaded.yt_artist
-                )
+                    # Step 2: Clean title and artist
+                    clean_meta = TitleCleaner.parse_artist_and_title(
+                        video_title=downloaded.raw_title or video_title,
+                        channel_name=downloaded.channel or uploader,
+                        yt_track=downloaded.yt_track,
+                        yt_artist=downloaded.yt_artist
+                    )
 
-                # Step 3: Read raw thumbnail if available
-                raw_thumb_bytes = None
-                if downloaded.thumbnail_path and os.path.exists(downloaded.thumbnail_path):
-                    try:
-                        with open(downloaded.thumbnail_path, "rb") as tf:
-                            raw_thumb_bytes = tf.read()
-                    except Exception as e:
-                        logger.debug(f"Could not read thumbnail file: {e}")
+                    # Step 3: Read raw thumbnail if available
+                    raw_thumb_bytes = None
+                    if downloaded.thumbnail_path and os.path.exists(downloaded.thumbnail_path):
+                        try:
+                            with open(downloaded.thumbnail_path, "rb") as tf:
+                                raw_thumb_bytes = tf.read()
+                        except Exception as e:
+                            logger.debug(f"Could not read thumbnail file: {e}")
 
-                # Step 4: Metadata and High-Res Cover Art Enrichment (iTunes / Deezer / Fallback)
-                enriched = MetadataEnricher.enrich(
-                    clean_meta=clean_meta,
-                    duration=downloaded.duration,
-                    raw_thumbnail_bytes=raw_thumb_bytes,
-                    max_art_res=self.config.artwork.max_resolution,
-                    default_album_artist=self.config.organization.compilation_album_artist
-                )
+                    # Step 4: Metadata and High-Res Cover Art Enrichment (iTunes / Deezer / Fallback)
+                    enriched = MetadataEnricher.enrich(
+                        clean_meta=clean_meta,
+                        duration=downloaded.duration,
+                        raw_thumbnail_bytes=raw_thumb_bytes,
+                        max_art_res=self.config.artwork.max_resolution,
+                        default_album_artist=self.config.organization.compilation_album_artist
+                    )
 
-                # Step 5: Lyrics (LRCLIB -> YouTube Subtitles fallback)
-                lyrics_res = None
-                has_lyrics = False
-                if self.config.lyrics.enabled:
-                    lyrics_res = LyricsManager.get_lyrics(
+                    # Step 5: Lyrics (LRCLIB -> YouTube Subtitles fallback)
+                    lyrics_res = None
+                    has_lyrics = False
+                    if self.config.lyrics.enabled:
+                        lyrics_res = LyricsManager.get_lyrics(
+                            title=enriched.title,
+                            artist=enriched.artist,
+                            album=enriched.album,
+                            duration=downloaded.duration,
+                            vtt_subtitle_path=downloaded.subtitle_path,
+                            use_lrclib=self.config.lyrics.use_lrclib,
+                            use_yt_subs=self.config.lyrics.use_youtube_subtitles
+                        )
+                        has_lyrics = bool(lyrics_res.synced_lyrics or lyrics_res.plain_lyrics)
+
+                    # Step 6: Move audio file to final destination
+                    _, ext = os.path.splitext(downloaded.audio_path)
+                    final_path = self._determine_destination_path(
+                        artist=enriched.artist,
+                        album=enriched.album,
+                        title=enriched.title,
+                        track_number=enriched.track_number,
+                        audio_ext=ext
+                    )
+
+                    dest_dir = os.path.dirname(final_path)
+                    os.makedirs(dest_dir, exist_ok=True)
+                    shutil.move(downloaded.audio_path, final_path)
+
+                    # Step 7: Save sidecar cover.jpg if requested and artwork exists
+                    if self.config.artwork.save_cover_jpg and enriched.artwork_bytes:
+                        cover_jpg_path = os.path.join(dest_dir, "cover.jpg")
+                        if not os.path.exists(cover_jpg_path):
+                            try:
+                                with open(cover_jpg_path, "wb") as cf:
+                                    cf.write(enriched.artwork_bytes)
+                            except Exception as e:
+                                logger.warning(f"Could not save cover.jpg: {e}")
+
+                    # Step 8: Save sidecar .lrc file if lyrics available
+                    if self.config.lyrics.save_lrc and lyrics_res and lyrics_res.synced_lyrics:
+                        LyricsManager.save_lrc_file(final_path, lyrics_res.synced_lyrics)
+
+                    # Step 9: Tag audio file with Mutagen
+                    lyrics_to_embed = lyrics_res.synced_lyrics or lyrics_res.plain_lyrics if lyrics_res else None
+                    AudioTagger.apply_tags(
+                        file_path=final_path,
+                        title=enriched.title,
+                        artist=enriched.artist,
+                        album=enriched.album,
+                        album_artist=enriched.album_artist,
+                        track_number=enriched.track_number,
+                        year=enriched.year,
+                        genre=enriched.genre,
+                        lyrics=lyrics_to_embed if self.config.lyrics.embed else None,
+                        artwork_bytes=enriched.artwork_bytes if self.config.artwork.embed else None,
+                        artwork_mime=enriched.artwork_mime
+                    )
+
+                    # Step 10: Record in database
+                    self.db.save_track(
+                        youtube_id=yt_id,
+                        file_path=final_path,
                         title=enriched.title,
                         artist=enriched.artist,
                         album=enriched.album,
                         duration=downloaded.duration,
-                        vtt_subtitle_path=downloaded.subtitle_path,
-                        use_lrclib=self.config.lyrics.use_lrclib,
-                        use_yt_subs=self.config.lyrics.use_youtube_subtitles
+                        format_name=self.config.audio.format,
+                        has_lyrics=has_lyrics
                     )
-                    has_lyrics = bool(lyrics_res.synced_lyrics or lyrics_res.plain_lyrics)
 
-                # Step 6: Move audio file to final destination
-                _, ext = os.path.splitext(downloaded.audio_path)
-                final_path = self._determine_destination_path(
-                    artist=enriched.artist,
-                    album=enriched.album,
-                    title=enriched.title,
-                    track_number=enriched.track_number,
-                    audio_ext=ext
-                )
-
-                dest_dir = os.path.dirname(final_path)
-                os.makedirs(dest_dir, exist_ok=True)
-                shutil.move(downloaded.audio_path, final_path)
-
-                # Step 7: Save sidecar cover.jpg if requested and artwork exists
-                if self.config.artwork.save_cover_jpg and enriched.artwork_bytes:
-                    cover_jpg_path = os.path.join(dest_dir, "cover.jpg")
-                    if not os.path.exists(cover_jpg_path):
-                        try:
-                            with open(cover_jpg_path, "wb") as cf:
-                                cf.write(enriched.artwork_bytes)
-                        except Exception as e:
-                            logger.warning(f"Could not save cover.jpg: {e}")
-
-                # Step 8: Save sidecar .lrc file if lyrics available
-                if self.config.lyrics.save_lrc and lyrics_res and lyrics_res.synced_lyrics:
-                    LyricsManager.save_lrc_file(final_path, lyrics_res.synced_lyrics)
-
-                # Step 9: Tag audio file with Mutagen
-                lyrics_to_embed = lyrics_res.synced_lyrics or lyrics_res.plain_lyrics if lyrics_res else None
-                AudioTagger.apply_tags(
-                    file_path=final_path,
-                    title=enriched.title,
-                    artist=enriched.artist,
-                    album=enriched.album,
-                    album_artist=enriched.album_artist,
-                    track_number=enriched.track_number,
-                    year=enriched.year,
-                    genre=enriched.genre,
-                    lyrics=lyrics_to_embed if self.config.lyrics.embed else None,
-                    artwork_bytes=enriched.artwork_bytes if self.config.artwork.embed else None,
-                    artwork_mime=enriched.artwork_mime
-                )
-
-                # Step 10: Record in database
-                self.db.save_track(
-                    youtube_id=yt_id,
-                    file_path=final_path,
-                    title=enriched.title,
-                    artist=enriched.artist,
-                    album=enriched.album,
-                    duration=downloaded.duration,
-                    format_name=self.config.audio.format,
-                    has_lyrics=has_lyrics
-                )
-
-                logger.info(f"Saved & Tagged: {enriched.artist} - {enriched.title} ({enriched.source})")
+                    logger.info(f"Saved & Tagged: {enriched.artist} - {enriched.title} ({enriched.source})")
+                finally:
+                    # Clean up per-track temporary artifacts immediately to preserve disk space
+                    track_temp_dir = os.path.join(temp_work_dir, yt_id)
+                    if os.path.exists(track_temp_dir):
+                        shutil.rmtree(track_temp_dir, ignore_errors=True)
 
         # Step 11: Update playlist record and generate Navidrome .m3u8 playlist
         self.db.update_playlist(
@@ -324,8 +331,18 @@ class MusicGetter:
 
 
 def run_daemon(config: AppConfig):
-    """Run MusicGetter daemon according to the configured schedule."""
+    """Run MusicGetter daemon according to the configured schedule with graceful shutdown."""
     getter = MusicGetter(config)
+
+    running = True
+
+    def handle_shutdown(signum, frame):
+        nonlocal running
+        logger.info("Shutdown signal received. Exiting daemon gracefully...")
+        running = False
+
+    signal.signal(signal.SIGINT, handle_shutdown)
+    signal.signal(signal.SIGTERM, handle_shutdown)
 
     if config.schedule.sync_on_startup:
         logger.info("Performing initial sync on startup...")
@@ -335,9 +352,11 @@ def run_daemon(config: AppConfig):
     logger.info(f"Scheduling daily sync at {sync_time}...")
     schedule.every().day.at(sync_time).do(getter.sync_all)
 
-    while True:
+    while running:
         schedule.run_pending()
-        time.sleep(30)
+        time.sleep(1)
+
+    logger.info("MusicGetter daemon stopped.")
 
 
 def main():
