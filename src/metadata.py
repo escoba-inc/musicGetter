@@ -9,7 +9,7 @@ from typing import Optional, Tuple
 from PIL import Image
 import requests
 
-from src.cleaner import CleanMetadata
+from src.cleaner import CleanMetadata, TitleCleaner
 
 logger = logging.getLogger(__name__)
 
@@ -125,11 +125,17 @@ class MetadataEnricher:
                 except Exception as e:
                     logger.debug(f"Failed to fetch iTunes hi-res artwork: {e}")
 
+            itunes_artist = best_match.get("artistName", clean_meta.artist)
+            primary_artist, extra_artists = TitleCleaner.extract_primary_artist(itunes_artist)
+            track_title = best_match.get("trackName", clean_meta.cleaned_title)
+            if extra_artists and not re.search(r"[\(\[\{]\s*(?:feat|ft)\.?\s+", track_title, re.IGNORECASE):
+                track_title = f"{track_title} (feat. {extra_artists})"
+
             return EnrichedMetadata(
-                title=best_match.get("trackName", clean_meta.cleaned_title),
-                artist=best_match.get("artistName", clean_meta.artist),
+                title=track_title,
+                artist=primary_artist,
                 album=best_match.get("collectionName", "Singles"),
-                album_artist=best_match.get("artistName", clean_meta.artist),
+                album_artist=primary_artist,
                 track_number=best_match.get("trackNumber"),
                 year=year,
                 genre=best_match.get("primaryGenreName"),
@@ -203,12 +209,16 @@ class MetadataEnricher:
 
             artist_obj = best_match.get("artist", {})
             matched_artist = artist_obj.get("name", clean_meta.artist) if isinstance(artist_obj, dict) else clean_meta.artist
+            primary_artist, extra_artists = TitleCleaner.extract_primary_artist(matched_artist)
+            track_title = best_match.get("title", clean_meta.cleaned_title)
+            if extra_artists and not re.search(r"[\(\[\{]\s*(?:feat|ft)\.?\s+", track_title, re.IGNORECASE):
+                track_title = f"{track_title} (feat. {extra_artists})"
 
             return EnrichedMetadata(
-                title=best_match.get("title", clean_meta.cleaned_title),
-                artist=matched_artist,
+                title=track_title,
+                artist=primary_artist,
                 album=album_title,
-                album_artist=matched_artist,
+                album_artist=primary_artist,
                 artwork_bytes=artwork_bytes,
                 artwork_mime="image/jpeg",
                 source="deezer"

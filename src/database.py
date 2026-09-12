@@ -115,6 +115,23 @@ class Database:
             ))
             conn.commit()
 
+    def update_track_metadata(
+        self,
+        youtube_id: str,
+        file_path: str,
+        title: str,
+        artist: str
+    ):
+        """Update track path, title, and artist after reorganization or migration."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE tracks
+                SET file_path = ?, title = ?, artist = ?
+                WHERE youtube_id = ?
+            """, (file_path, title, artist, youtube_id))
+            conn.commit()
+
     def update_playlist(
         self,
         playlist_id: str,
@@ -206,3 +223,10 @@ class Database:
             cursor.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?", (playlist_id,))
             cursor.execute("DELETE FROM playlists WHERE playlist_id = ?", (playlist_id,))
             conn.commit()
+
+    def get_all_playlists(self) -> List[Dict[str, Any]]:
+        """Retrieve all playlists in database."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM playlists")
+            return [dict(row) for row in cursor.fetchall()]

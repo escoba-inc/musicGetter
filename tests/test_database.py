@@ -102,6 +102,22 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(len(stale), 1)
         self.assertEqual(stale[0]["playlist_id"], "PL1")
 
+    def test_update_track_metadata_and_all_playlists(self):
+        self.db.save_track("yt_test", "/old/path/song.opus", "Old Title", "Joined Artist 1 & Artist 2")
+        self.db.update_playlist("PL_TEST", "Test PL", "https://url", ["yt_test"])
+
+        # Test update_track_metadata
+        self.db.update_track_metadata("yt_test", "/new/path/song.opus", "New Title", "Joined Artist 1")
+        track = self.db.get_track("yt_test")
+        self.assertEqual(track["file_path"], "/new/path/song.opus")
+        self.assertEqual(track["title"], "New Title")
+        self.assertEqual(track["artist"], "Joined Artist 1")
+
+        # Test get_all_playlists
+        all_pls = self.db.get_all_playlists()
+        self.assertEqual(len(all_pls), 1)
+        self.assertEqual(all_pls[0]["playlist_id"], "PL_TEST")
+
 
 if __name__ == "__main__":
     unittest.main()
