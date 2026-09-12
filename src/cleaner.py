@@ -26,10 +26,12 @@ class TitleCleaner:
         r"official|"
         r"music\s+video|"
         r"clip\s+officiel|"
-        r"video\s+officiel|"
+        r"video\s+oficiel|"
+        r"video\s+oficial|"
+        r"audio\s+oficial|"
         r"video\s+clip|"
         r"audio\s+only|"
-        r"visualizer|"
+        r"visualizer(?:\s+video)?|"
         r"color\s+coded\s+lyrics|"
         r"lyric(?:s)?(?:\s+video)?|"
         r"with\s+lyrics|"
@@ -37,8 +39,10 @@ class TitleCleaner:
         r"paroles|"
         r"performance\s+video|"
         r"full\s+(?:song|track|album|audio)|"
-        r"4k|1080p|720p|hd|hq|uhd|"
+        r"4k(?:\s*60fps)?|1080p(?:60)?|720p|hd|hq|uhd|"
         r"remaster(?:ed)?(?:\s+\d{4})?|"
+        r"sub\s+español|eng\s+sub|"
+        r"prod\.?\s+(?:by\s+)?[^\)\]\}】]+|"
         r"mv"
         r")"
     )
@@ -81,19 +85,22 @@ class TitleCleaner:
         """Remove video artifacts and clutter from title string."""
         cleaned = text
 
-        # 1. Strip trailing pipes/slashes e.g. " | Official Video"
+        # 1. Strip leading track numbers like "01. ", "1. ", "12) "
+        cleaned = re.sub(r"^\s*\d{1,2}[\.\)]\s+", "", cleaned)
+
+        # 2. Strip trailing pipes/slashes e.g. " | Official Video"
         cleaned = cls.TRAILING_JUNK_REGEX.sub("", cleaned)
 
-        # 2. Strip bracketed junk like (Official Video), [4K], [Lyric Video]
+        # 3. Strip bracketed junk like (Official Video), [4K], [Lyric Video]
         cleaned = cls.BRACKET_JUNK_REGEX.sub("", cleaned)
 
-        # 3. Clean empty brackets left over: (), [], {}, 【】
+        # 4. Clean empty brackets left over: (), [], {}, 【】
         cleaned = re.sub(r"[\(\[\{【]\s*[\)\]\}】]", "", cleaned)
 
-        # 4. Normalize double spaces and trim
+        # 5. Normalize double spaces and trim
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
-        # 5. Clean trailing / leading hyphens, pipes, dots
+        # 6. Clean trailing / leading hyphens, pipes, dots
         cleaned = re.sub(r"^[\s\-\–\—\|\.\,\:\;]+|[\s\-\–\—\|\.\,\:\;]+$", "", cleaned).strip()
         return cleaned
 

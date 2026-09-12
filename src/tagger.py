@@ -107,6 +107,14 @@ class AudioTagger:
             pic.mime = artwork_mime
             pic.desc = "Cover"
             pic.depth = 24
+            try:
+                import io
+                from PIL import Image
+                with Image.open(io.BytesIO(artwork_bytes)) as img:
+                    pic.width, pic.height = img.size
+            except Exception:
+                pic.width = 0
+                pic.height = 0
             audio["metadata_block_picture"] = [base64.b64encode(pic.write()).decode("ascii")]
 
         audio.save()

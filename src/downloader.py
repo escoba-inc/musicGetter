@@ -80,9 +80,16 @@ class Downloader:
                     entry_id = entry.get("id")
                     if not entry_id:
                         continue
+                    title = entry.get("title", "")
+                    if title.lower() in [
+                        "[private video]", "[deleted video]",
+                        "private video", "deleted video",
+                        "[unavailable video]", "unavailable video"
+                    ]:
+                        continue
                     clean_entries.append({
                         "id": entry_id,
-                        "title": entry.get("title", ""),
+                        "title": title,
                         "channel": entry.get("uploader") or entry.get("channel", ""),
                         "duration": entry.get("duration"),
                     })
@@ -101,7 +108,8 @@ class Downloader:
         youtube_id: str,
         temp_dir: str,
         audio_format: str = "opus",
-        download_subs: bool = True
+        download_subs: bool = True,
+        subtitle_languages: Optional[str] = None
     ) -> Optional[DownloadedTrack]:
         """
         Download the best audio stream, highest quality thumbnail, and subtitles for a single video.
@@ -113,13 +121,15 @@ class Downloader:
         os.makedirs(track_temp_dir, exist_ok=True)
         outtmpl = os.path.join(track_temp_dir, "%(id)s.%(ext)s")
 
+        sub_langs = [s.strip() for s in (subtitle_languages or "en.*,es.*,all").split(",") if s.strip()]
+
         opts = self._get_base_ydl_opts()
         opts.update({
             "outtmpl": outtmpl,
             "writethumbnail": True,
             "writesubtitles": download_subs,
             "writeautomaticsub": download_subs,
-            "subtitleslangs": ["en.*", "es.*", "all"],
+            "subtitleslangs": sub_langs,
             "subtitlesformat": "vtt",
             "noplaylist": True,
         })

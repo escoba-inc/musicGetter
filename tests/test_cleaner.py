@@ -17,6 +17,9 @@ class TestTitleCleaner(unittest.TestCase):
             ("Taylor Swift - Anti-Hero (Lyric Video)", "Taylor Swift - Anti-Hero"),
             ("Billie Eilish - bad guy (Visualizer)", "Billie Eilish - bad guy"),
             ("Adele - Easy On Me | Official Video", "Adele - Easy On Me"),
+            ("Bad Bunny - Tití Me Preguntó (Video Oficial)", "Bad Bunny - Tití Me Preguntó"),
+            ("01. Linkin Park - In The End", "Linkin Park - In The End"),
+            ("Juice WRLD - Lucid Dreams (Prod. Nick Mira) [Official Video]", "Juice WRLD - Lucid Dreams"),
         ]
         for raw, expected in cases:
             cleaned = TitleCleaner.strip_junk(raw)

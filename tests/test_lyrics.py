@@ -51,6 +51,21 @@ Third line here
             with open(saved_path, "r") as f:
                 self.assertEqual(f.read().strip(), lyrics_content)
 
+    @unittest.mock.patch("src.lyrics.requests.get")
+    def test_fetch_from_lrclib(self, mock_get):
+        mock_resp = unittest.mock.MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "syncedLyrics": "[00:10.00] Line from LRCLIB",
+            "plainLyrics": "Line from LRCLIB"
+        }
+        mock_get.return_value = mock_resp
+
+        res = LyricsManager.fetch_from_lrclib("Song", "Artist")
+        self.assertIsNotNone(res)
+        self.assertEqual(res.source, "lrclib")
+        self.assertEqual(res.synced_lyrics, "[00:10.00] Line from LRCLIB")
+
 
 if __name__ == "__main__":
     unittest.main()

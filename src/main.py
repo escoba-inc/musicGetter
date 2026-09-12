@@ -96,7 +96,8 @@ class MusicGetter:
                     youtube_id=yt_id,
                     temp_dir=temp_work_dir,
                     audio_format=self.config.audio.format,
-                    download_subs=self.config.lyrics.use_youtube_subtitles
+                    download_subs=self.config.lyrics.use_youtube_subtitles,
+                    subtitle_languages=self.config.lyrics.subtitle_languages
                 )
 
                 if not downloaded or not os.path.exists(downloaded.audio_path):
