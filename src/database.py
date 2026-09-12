@@ -159,8 +159,9 @@ class Database:
             for pos, ytid in enumerate(youtube_ids):
                 cursor.execute("""
                     INSERT OR IGNORE INTO playlist_tracks (playlist_id, youtube_id, position)
-                    VALUES (?, ?, ?)
-                """, (playlist_id, ytid, pos))
+                    SELECT ?, ?, ?
+                    WHERE EXISTS (SELECT 1 FROM tracks WHERE youtube_id = ?)
+                """, (playlist_id, ytid, pos, ytid))
             conn.commit()
 
     def get_playlist_tracks(self, playlist_id: str) -> List[Dict[str, Any]]:

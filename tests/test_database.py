@@ -118,6 +118,15 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(len(all_pls), 1)
         self.assertEqual(all_pls[0]["playlist_id"], "PL_TEST")
 
+    def test_update_playlist_skips_nonexistent_tracks_no_fk_error(self):
+        # yt_valid exists in tracks, but yt_missing does not!
+        self.db.save_track("yt_valid", "/path/valid.opus", "Valid Track", "Artist")
+        # Should NOT raise sqlite3.IntegrityError: FOREIGN KEY constraint failed!
+        self.db.update_playlist("PL_MIXED", "Mixed PL", "https://url", ["yt_valid", "yt_missing"])
+        tracks = self.db.get_playlist_tracks("PL_MIXED")
+        self.assertEqual(len(tracks), 1)
+        self.assertEqual(tracks[0]["youtube_id"], "yt_valid")
+
 
 if __name__ == "__main__":
     unittest.main()
