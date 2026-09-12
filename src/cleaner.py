@@ -63,7 +63,6 @@ class TitleCleaner:
     CHANNEL_JUNK = [
         r"\s*-\s*Topic$",
         r"VEVO$",
-        r"Vevo$",
         r"\s+Official(\s+Channel)?$",
         r"\s+Music$",
         r"\s+Records$",

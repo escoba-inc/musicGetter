@@ -8,12 +8,12 @@ from typing import List, Dict, Any
 logger = logging.getLogger(__name__)
 
 
-def sanitize_filename(name: str) -> str:
-    """Sanitize string for safe filesystem usage across Linux, Windows, and macOS."""
-    # Replace illegal path characters with hyphen or space
+def sanitize_filename(name: str, fallback: str = "Playlist") -> str:
+    """Sanitize string for safe filesystem usage across Linux, Windows, macOS, and SMB shares."""
+    # Replace illegal path characters with hyphen
     cleaned = re.sub(r'[\\/*?:"<>|]', "-", name)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    return cleaned or "Playlist"
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .-")
+    return cleaned or fallback
 
 
 class PlaylistGenerator:
@@ -29,7 +29,7 @@ class PlaylistGenerator:
         Navidrome scans this file and displays the playlist in the web UI / Subsonic apps.
         """
         os.makedirs(playlists_dir, exist_ok=True)
-        filename = f"{sanitize_filename(playlist_name)}.m3u8"
+        filename = f"{sanitize_filename(playlist_name, fallback='Playlist')}.m3u8"
         file_path = os.path.join(playlists_dir, filename)
 
         lines = ["#EXTM3U"]
@@ -55,5 +55,6 @@ class PlaylistGenerator:
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(content)
 
-        logger.info(f"Generated playlist file: {file_path} with {len(lines) // 2} tracks")
+        track_count = (len(lines) - 1) // 2
+        logger.info(f"Generated playlist file: {file_path} with {track_count} tracks")
         return file_path
