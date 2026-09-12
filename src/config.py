@@ -138,8 +138,11 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     if env_playlists and env_playlists.strip():
         playlists.extend(_parse_playlists_from_string(env_playlists))
 
-    # Check numbered environment variables: PLAYLIST_1, PLAYLIST_2, etc.
-    numbered_keys = sorted([k for k in os.environ if re.match(r"^PLAYLIST_\d+$", k, re.IGNORECASE)])
+    # Check numbered environment variables: PLAYLIST_1, PLAYLIST_2, etc. (numerically sorted)
+    numbered_keys = sorted(
+        [k for k in os.environ if re.match(r"^PLAYLIST_\d+$", k, re.IGNORECASE)],
+        key=lambda k: int(re.search(r"\d+", k).group())
+    )
     for k in numbered_keys:
         val = os.environ[k].strip()
         if val:
@@ -155,6 +158,15 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
                     url=item["url"].strip(),
                     name=item.get("name")
                 ))
+
+    # Deduplicate playlists by URL while preserving order
+    seen_urls = set()
+    deduped_playlists = []
+    for pl in playlists:
+        if pl.url not in seen_urls:
+            seen_urls.add(pl.url)
+            deduped_playlists.append(pl)
+    playlists = deduped_playlists
 
     # --- 2. Directories ---
     library_dir = os.environ.get("LIBRARY_DIR", raw_cfg.get("library_dir", "/music"))

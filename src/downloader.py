@@ -176,6 +176,7 @@ class Downloader:
 
                 # Locate thumbnail
                 thumb_candidates = glob.glob(os.path.join(track_temp_dir, f"{youtube_id}*.jpg")) + \
+                                   glob.glob(os.path.join(track_temp_dir, f"{youtube_id}*.jpeg")) + \
                                    glob.glob(os.path.join(track_temp_dir, f"{youtube_id}*.webp")) + \
                                    glob.glob(os.path.join(track_temp_dir, f"{youtube_id}*.png"))
                 thumb_path = thumb_candidates[0] if thumb_candidates else None
