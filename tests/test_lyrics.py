@@ -114,5 +114,35 @@ Third line here
             self.assertIn("[00:02.00] Synced Subtitle Line", res.synced_lyrics)
 
 
+    @unittest.mock.patch("src.lyrics.requests.get")
+    def test_fetch_from_lyricsovh(self, mock_get):
+        mock_resp = unittest.mock.MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "lyrics": "Quién diría que me gustarías\nEl mismo día..."
+        }
+        mock_get.return_value = mock_resp
+
+        res = LyricsManager.fetch_from_lyricsovh("Quién Diría", "DePol")
+        self.assertIsNotNone(res)
+        self.assertEqual(res.source, "lyrics_ovh")
+        self.assertIn("Quién diría", res.plain_lyrics)
+
+    @unittest.mock.patch("src.lyrics.LyricsManager.fetch_from_lrclib")
+    @unittest.mock.patch("src.lyrics.LyricsManager.fetch_from_lyricsovh")
+    def test_get_lyrics_tier4_lyricsovh(self, mock_ovh, mock_lrclib):
+        mock_lrclib.return_value = None
+        mock_ovh.return_value = unittest.mock.MagicMock(
+            synced_lyrics=None,
+            plain_lyrics="Plain lyrics from lyrics.ovh",
+            source="lyrics_ovh"
+        )
+
+        res = LyricsManager.get_lyrics("Song", "Artist", use_lrclib=True, use_yt_subs=False)
+        self.assertIsNotNone(res)
+        self.assertEqual(res.source, "lyrics_ovh")
+        self.assertEqual(res.plain_lyrics, "Plain lyrics from lyrics.ovh")
+
+
 if __name__ == "__main__":
     unittest.main()

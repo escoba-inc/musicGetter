@@ -30,6 +30,7 @@ class LyricsManager:
         duration: Optional[int] = None
     ) -> Optional[LyricsResult]:
         """Fetch synced or plain lyrics from open LRCLIB database."""
+        # 1. Exact match attempt
         base_url = "https://lrclib.net/api/get"
         params = {
             "track_name": title,
@@ -52,8 +53,7 @@ class LyricsManager:
                 synced = data.get("syncedLyrics")
                 plain = data.get("plainLyrics")
                 item_dur = data.get("duration")
-                # If duration difference > 4 seconds, synced lyrics will be off (e.g. music video intro)
-                if duration and item_dur and abs(item_dur - duration) > 4.0:
+                if duration and item_dur and abs(item_dur - duration) > 6.0:
                     synced = None
                 if synced or plain:
                     return LyricsResult(
@@ -62,55 +62,82 @@ class LyricsManager:
                         source="lrclib"
                     )
 
-            # If exact match failed, try search endpoint
+            # 2. Search endpoint with multiple query variations
             search_url = "https://lrclib.net/api/search"
-            q = f"{artist} {title}"
-            search_resp = requests.get(
-                search_url,
-                params={"q": q},
-                headers={"User-Agent": cls.USER_AGENT},
-                timeout=8
-            )
-            if search_resp.status_code == 200:
-                results = search_resp.json()
-                if results and isinstance(results, list):
-                    best_synced = None
-                    best_plain = None
-                    min_dur_diff = float("inf")
+            # Try full title, and if it has (feat. ...) or brackets, also try stripped title
+            clean_title = re.sub(r"[\(\[\{].*?[\)\]\}]", "", title).strip()
+            queries = [f"{artist} {title}"]
+            if clean_title and clean_title.lower() != title.lower():
+                queries.append(f"{artist} {clean_title}")
 
-                    for item in results:
-                        s_lyrics = item.get("syncedLyrics")
-                        p_lyrics = item.get("plainLyrics")
-                        item_dur = item.get("duration")
+            for q in queries:
+                search_resp = requests.get(
+                    search_url,
+                    params={"q": q},
+                    headers={"User-Agent": cls.USER_AGENT},
+                    timeout=8
+                )
+                if search_resp.status_code == 200:
+                    results = search_resp.json()
+                    if results and isinstance(results, list):
+                        best_synced = None
+                        best_plain = None
+                        min_dur_diff = float("inf")
 
-                        dur_diff = abs(item_dur - duration) if (duration and item_dur) else 0.0
+                        for item in results:
+                            s_lyrics = item.get("syncedLyrics")
+                            p_lyrics = item.get("plainLyrics")
+                            item_dur = item.get("duration")
 
-                        # Prioritize candidates with syncedLyrics within 4s of audio duration
-                        if s_lyrics and (not duration or dur_diff <= 4.0):
-                            if dur_diff < min_dur_diff:
-                                min_dur_diff = dur_diff
-                                best_synced = s_lyrics
-                                best_plain = p_lyrics or best_plain
+                            dur_diff = abs(item_dur - duration) if (duration and item_dur) else 0.0
 
-                        if p_lyrics and not best_plain:
-                            best_plain = p_lyrics
+                            # Prioritize candidates with syncedLyrics within 6s of audio duration
+                            if s_lyrics and (not duration or dur_diff <= 6.0):
+                                if dur_diff < min_dur_diff:
+                                    min_dur_diff = dur_diff
+                                    best_synced = s_lyrics
+                                    best_plain = p_lyrics or best_plain
 
-                    if best_synced:
-                        return LyricsResult(
-                            synced_lyrics=best_synced,
-                            plain_lyrics=best_plain,
-                            source="lrclib"
-                        )
-                    elif best_plain:
-                        return LyricsResult(
-                            synced_lyrics=None,
-                            plain_lyrics=best_plain,
-                            source="lrclib"
-                        )
+                            if p_lyrics and not best_plain:
+                                best_plain = p_lyrics
+
+                        if best_synced:
+                            return LyricsResult(
+                                synced_lyrics=best_synced,
+                                plain_lyrics=best_plain,
+                                source="lrclib"
+                            )
+                        elif best_plain:
+                            return LyricsResult(
+                                synced_lyrics=None,
+                                plain_lyrics=best_plain,
+                                source="lrclib"
+                            )
 
         except Exception as e:
             logger.debug(f"LRCLIB request failed for {artist} - {title}: {e}")
 
+        return None
+
+    @classmethod
+    def fetch_from_lyricsovh(cls, title: str, artist: str) -> Optional[LyricsResult]:
+        """Fallback query to free open lyrics.ovh API for plain lyrics."""
+        clean_title = re.sub(r"[\(\[\{].*?[\)\]\}]", "", title).strip()
+        clean_artist = re.sub(r"[\(\[\{].*?[\)\]\}]", "", artist).strip()
+        url = f"https://api.lyrics.ovh/v1/{urllib.parse.quote(clean_artist)}/{urllib.parse.quote(clean_title)}"
+        try:
+            resp = requests.get(url, headers={"User-Agent": cls.USER_AGENT}, timeout=8)
+            if resp.status_code == 200:
+                data = resp.json()
+                lyrics_text = data.get("lyrics", "").strip()
+                if lyrics_text:
+                    return LyricsResult(
+                        synced_lyrics=None,
+                        plain_lyrics=lyrics_text,
+                        source="lyrics_ovh"
+                    )
+        except Exception as e:
+            logger.debug(f"lyrics.ovh failed for {artist} - {title}: {e}")
         return None
 
     @classmethod
@@ -234,6 +261,11 @@ class LyricsManager:
         # Tier 3: Fallback to LRCLIB plain text if no synced lyrics could be found
         if lrclib_res and lrclib_res.plain_lyrics:
             return lrclib_res
+
+        # Tier 4: Fallback to lyrics.ovh plain text
+        ovh_res = cls.fetch_from_lyricsovh(title, artist)
+        if ovh_res and ovh_res.plain_lyrics:
+            return ovh_res
 
         return LyricsResult()
 
