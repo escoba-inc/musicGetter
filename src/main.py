@@ -3,6 +3,7 @@
 import argparse
 import logging
 import os
+import re
 import shutil
 import signal
 import sys
@@ -307,8 +308,112 @@ class MusicGetter:
         except Exception as e:
             logger.debug(f"Directory cleanup notice: {e}")
 
+    def migrate_multi_artist_tracks(self):
+        """
+        Scan existing library tracks and automatically migrate any tracks saved under
+        joined collaboration artists (e.g. 'Jim Yosef & Scarlett', 'DePol, Pol Gutierrez Molina')
+        to their primary artist folder (e.g. 'Jim Yosef', 'DePol').
+        """
+        all_tracks = self.db.get_all_tracks()
+        migrated_count = 0
+
+        for track in all_tracks:
+            old_artist = track.get("artist", "")
+            primary_artist, extra = TitleCleaner.extract_primary_artist(old_artist)
+            if not extra or primary_artist == old_artist:
+                continue
+
+            yt_id = track["youtube_id"]
+            old_path = track["file_path"]
+            if not os.path.exists(old_path):
+                continue
+
+            old_title = track.get("title", "")
+            new_title = old_title
+            if extra and not re.search(r"[\(\[\{]\s*(?:feat|ft)\.?\s+", new_title, re.IGNORECASE):
+                new_title = f"{new_title} (feat. {extra})"
+
+            track_num = None
+            old_base_name = os.path.basename(old_path)
+            num_match = re.match(r"^(\d{1,2})\s*-\s*", old_base_name)
+            if num_match:
+                try:
+                    track_num = int(num_match.group(1))
+                except ValueError:
+                    track_num = None
+
+            _, ext = os.path.splitext(old_path)
+            new_path = self._determine_destination_path(
+                artist=primary_artist,
+                album=track.get("album", "Singles"),
+                title=new_title,
+                track_number=track_num,
+                audio_ext=ext
+            )
+
+            if os.path.abspath(new_path) == os.path.abspath(old_path):
+                continue
+
+            try:
+                dest_dir = os.path.dirname(new_path)
+                os.makedirs(dest_dir, exist_ok=True)
+
+                # Move audio file
+                shutil.move(old_path, new_path)
+
+                # Move sidecar .lrc if exists
+                old_base, _ = os.path.splitext(old_path)
+                new_base, _ = os.path.splitext(new_path)
+                if os.path.exists(f"{old_base}.lrc"):
+                    shutil.move(f"{old_base}.lrc", f"{new_base}.lrc")
+
+                # Move cover.jpg if not yet in target album dir
+                old_dir = os.path.dirname(old_path)
+                old_cover = os.path.join(old_dir, "cover.jpg")
+                new_cover = os.path.join(dest_dir, "cover.jpg")
+                if os.path.exists(old_cover) and not os.path.exists(new_cover):
+                    shutil.copy2(old_cover, new_cover)
+
+                # Update tags with primary artist
+                AudioTagger.apply_tags(
+                    file_path=new_path,
+                    title=new_title,
+                    artist=primary_artist,
+                    album=track.get("album", "Singles"),
+                    album_artist=primary_artist
+                )
+
+                # Update database
+                self.db.update_track_metadata(
+                    youtube_id=yt_id,
+                    file_path=new_path,
+                    title=new_title,
+                    artist=primary_artist
+                )
+
+                # Remove old empty directory
+                self._cleanup_empty_directories(old_dir)
+
+                logger.info(f"Migrated joined artist: '{old_artist}' -> '{primary_artist}' ({new_path})")
+                migrated_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to migrate track {old_path} to {new_path}: {e}")
+
+        if migrated_count > 0:
+            logger.info(f"Successfully migrated {migrated_count} multi-artist track(s) to primary artist folders.")
+            for pl in self.db.get_all_playlists():
+                tracks = self.db.get_playlist_tracks(pl["playlist_id"])
+                PlaylistGenerator.write_m3u8(
+                    output_dir=self.config.paths.playlists_dir,
+                    playlist_name=pl["name"],
+                    tracks=tracks
+                )
+
     def sync_all(self):
         """Run synchronization across all configured playlists and prune removed songs."""
+        # 1. Migrate any existing multi-artist folders to primary artist folders
+        self.migrate_multi_artist_tracks()
+
         if not self.config.playlists:
             logger.warning("No playlists configured in docker-compose.yml.")
             return
