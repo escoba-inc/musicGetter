@@ -5,14 +5,41 @@ services:
     container_name: musicgetter
     restart: unless-stopped
     environment:
-      - PUID=1000               # Change to your host user ID
-      - PGID=1000               # Change to your host group ID
+      - PUID=1000               # Change to your host user ID (run `id -u` to find it)
+      - PGID=1000               # Change to your host group ID (run `id -g` to find it)
       - TZ=UTC
-    volumes:
-      - ./config:/config        # Location of config.yaml, cookies.txt, and library.db
-      - ./music:/music          # Target music folder shared with Navidrome
 
-  # Navidrome Music Server (Uncomment if you want to deploy Navidrome together)
+      # =======================================================
+      # 🎵 PLAYLISTS (Add as many as you want!)
+      # Format: URL or URL | Custom Name
+      # ==========================================
+      - PLAYLIST_1=https://music.youtube.com/playlist?list=PLrEnWoR732-B41U5c81p5G5vG17j61oTz | Favorite Beats
+      - PLAYLIST_2=https://www.youtube.com/playlist?list=PL4fGSIFgk5t2KqZpQo78jB3iS8s5sN1b8 | Lo-Fi Chill
+      # You can add as many as you want: PLAYLIST_3, PLAYLIST_4, etc.
+      # Or use a single list:
+      # PLAYLISTS: |
+      #   https://music.youtube.com/playlist?list=... | Beats
+      #   https://www.youtube.com/playlist?list=... | Chill
+
+      # ==========================================
+      # ⚙️ SETTINGS
+      # ==========================================
+      - AUDIO_FORMAT=opus         # "opus" (best YouTube quality), "m4a", or "mp3"
+      - DAILY_AT=03:00            # Daily check time (24-hour HH:MM format)
+      - SYNC_ON_STARTUP=true      # Sync immediately when container launches
+      - LYRICS_ENABLED=true       # Fetch lyrics from LRCLIB & YouTube subtitles
+      - SAVE_LRC=true             # Save synchronized .lrc sidecars for Navidrome
+      - USE_YOUTUBE_SUBTITLES=true # Fallback to YouTube captions if LRCLIB has no lyrics
+      - COVER_RESOLUTION=3000     # Pristine cover art resolution (up to 3000x3000px)
+      - SAVE_COVER_JPG=true       # Save cover.jpg in album folder for Navidrome
+      - COMPILATION_ALBUM_ARTIST=Various Artists # Prevents 100 1-song artists cluttering Navidrome
+      - STRUCTURE=standard        # "standard" (Artist/Album/Track) or "flat"
+      - GENERATE_M3U8=true        # Create .m3u8 playlists in /music/playlists/
+    volumes:
+      - ./music:/music            # Target music folder shared with Navidrome
+      - ./config:/config          # Stores SQLite database (library.db) & optional cookies.txt
+
+  # Navidrome Music Server (Uncomment if deploying together)
   navidrome:
     image: deluan/navidrome:latest
     container_name: navidrome

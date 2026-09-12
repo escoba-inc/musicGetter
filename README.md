@@ -21,52 +21,49 @@
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start (All in `docker-compose.yml`)
 
-### 1. Clone & Set Up Configuration
+No separate configuration files required! You can configure your playlists and settings directly inside `docker-compose.yml`:
+
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/escoba-inc/musicGetter.git
 cd musicGetter
-
-# Create directories for config and music
-mkdir -p config music
-
-# Copy example configuration
-cp config.example.yaml config/config.yaml
 ```
 
-### 2. Configure Your Playlists
+### 2. Configure & Run in `docker-compose.yml`
 
-Edit `config/config.yaml` with your preferred editor:
+Edit `docker-compose.yml` to set your playlist URLs:
 
 ```yaml
-playlists:
-  - url: "https://music.youtube.com/playlist?list=PLrEnWoR732-B41U5c81p5G5vG17j61oTz"
-    name: "Favorite Beats"
-  - url: "https://www.youtube.com/playlist?list=PL4fGSIFgk5t2KqZpQo78jB3iS8s5sN1b8"
-    name: "Lo-Fi Study"
-
-library_dir: "/music"
-data_dir: "/config"
-
-audio:
-  format: "opus"       # Options: "opus" (best quality), "m4a", "mp3"
-
-schedule:
-  daily_at: "03:00"    # Daily sync time
-  sync_on_startup: true
+services:
+  musicgetter:
+    build: .
+    container_name: musicgetter
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      # 🎵 Add as many playlists as you want (URL or URL | Custom Name):
+      - PLAYLIST_1=https://music.youtube.com/playlist?list=PLrEnWoR732-B41U5c81p5G5vG17j61oTz | Favorite Beats
+      - PLAYLIST_2=https://www.youtube.com/playlist?list=PL4fGSIFgk5t2KqZpQo78jB3iS8s5sN1b8 | Lo-Fi Chill
+      # ⚙️ Settings:
+      - AUDIO_FORMAT=opus         # "opus" (best quality), "m4a", or "mp3"
+      - DAILY_AT=03:00            # Daily check time (24-hour format)
+      - SYNC_ON_STARTUP=true      # Sync immediately on startup
+    volumes:
+      - ./music:/music            # Music folder shared with Navidrome
+      - ./config:/config          # Stores database and optional cookies.txt
 ```
 
-### 3. Launch with Docker Compose
-
-Run MusicGetter (and optionally Navidrome) with:
+### 3. Launch the Stack
 
 ```bash
 docker compose up -d
 ```
 
-Check the logs to watch your tracks being downloaded and enriched:
+View the live sync logs:
 
 ```bash
 docker compose logs -f musicgetter
@@ -74,26 +71,26 @@ docker compose logs -f musicgetter
 
 ---
 
-## ⚙️ Configuration Reference
+## ⚙️ Configuration Reference (Environment Variables)
 
-| Field | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `playlists` | List | `[]` | List of YouTube or YouTube Music playlist URLs. |
-| `library_dir` | Path | `"/music"` | Directory where downloaded music files and playlists are saved. |
-| `data_dir` | Path | `"/config"` | Directory where the SQLite tracking database (`library.db`) is stored. |
-| `audio.format` | String | `"opus"` | Target audio format: `"opus"`, `"m4a"`, or `"mp3"`. |
-| `audio.quality` | String | `"best"` | `"best"` for direct stream copy, or `"320"` for MP3. |
-| `organization.structure` | String | `"standard"` | `"standard"` (`Artist/Album/Track.ext`) or `"flat"` (`Artist - Track.ext`). |
-| `organization.compilation_album_artist` | String | `"Various Artists"` | Fallback `ALBUMARTIST` for varied-artist playlists to avoid Navidrome UI clutter. |
-| `organization.generate_m3u8` | Bool | `true` | Generate `.m3u8` playlist files in the playlists directory for Navidrome. |
-| `lyrics.enabled` | Bool | `true` | Enable fetching and writing lyrics. |
-| `lyrics.save_lrc` | Bool | `true` | Save sidecar `.lrc` file next to each song. |
-| `lyrics.use_lrclib` | Bool | `true` | Use LRCLIB database for synced lyrics. |
-| `lyrics.use_youtube_subtitles` | Bool | `true` | Fallback to YouTube captions if LRCLIB has no lyrics. |
-| `artwork.max_resolution` | Integer | `3000` | Max artwork resolution from iTunes (up to 3000×3000px). |
-| `artwork.save_cover_jpg` | Bool | `true` | Save a `cover.jpg` file in each album folder for Navidrome. |
-| `schedule.daily_at` | String | `"03:00"` | 24-hour time (`HH:MM`) when the daily sync runs. |
-| `cookies_file` | Path | `null` | Optional path to `cookies.txt` if syncing private playlists. |
+All options can be defined directly under `environment:` in `docker-compose.yml`:
+
+| Environment Variable | Default | Description |
+| :--- | :--- | :--- |
+| `PLAYLIST_1`, `PLAYLIST_2`, ... | `""` | Add numbered playlist URLs: `URL` or `URL \| Custom Name`. |
+| `PLAYLISTS` | `""` | Alternatively, multiline or comma-separated list of playlist URLs. |
+| `AUDIO_FORMAT` | `"opus"` | Target audio format: `"opus"`, `"m4a"`, or `"mp3"`. |
+| `DAILY_AT` | `"03:00"` | Daily time (`HH:MM`) when the automatic sync runs. |
+| `SYNC_ON_STARTUP` | `"true"` | Check and download new songs as soon as the container boots. |
+| `LYRICS_ENABLED` | `"true"` | Enable fetching and writing lyrics. |
+| `SAVE_LRC` | `"true"` | Save sidecar `.lrc` files for Navidrome synced karaoke lyrics. |
+| `USE_LRCLIB` | `"true"` | Query LRCLIB for synced lyrics. |
+| `USE_YOUTUBE_SUBTITLES` | `"true"` | Fallback to YouTube auto-captions if LRCLIB doesn't have lyrics. |
+| `COVER_RESOLUTION` | `"3000"` | Max artwork resolution from iTunes (up to 3000×3000px). |
+| `SAVE_COVER_JPG` | `"true"` | Save `cover.jpg` in album folders for Navidrome. |
+| `COMPILATION_ALBUM_ARTIST` | `"Various Artists"` | Album Artist tag for playlist tracks to keep Navidrome's Artists tab clean. |
+| `STRUCTURE` | `"standard"` | `"standard"` (`Artist/Album/Track.ext`) or `"flat"`. |
+| `PUID` / `PGID` | `1000` / `1000` | Host user/group ID for proper file permissions. |
 
 ---
 
@@ -124,7 +121,7 @@ MusicGetter formats your library exactly as Navidrome prefers:
 /music/
 ├── playlists/
 │   ├── Favorite Beats.m3u8
-│   └── Lo-Fi Study.m3u8
+│   └── Lo-Fi Chill.m3u8
 ├── Dua Lipa/
 │   └── Future Nostalgia/
 │       ├── 05 - Levitating.opus
