@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# MusicGetter local state and testing output
+config.yaml
+config/
+music/
+data/
+*.db
+*.opus
+*.m4a
+*.mp3
+*.lrc
+*.jpg
+cookies.txt
+
+# Testing & IDE
+.pytest_cache/
+.coverage
+.idea/
+.vscode/
+*.swp
