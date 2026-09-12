@@ -87,18 +87,18 @@ Third line here
         self.assertEqual(res.plain_lyrics, "Line from LRCLIB")
 
     @unittest.mock.patch("src.lyrics.LyricsManager.fetch_from_lrclib")
-    def test_get_lyrics_fallback_to_yt_when_lrclib_plain(self, mock_lrclib):
-        # LRCLIB only has plain text (no timestamps)
+    def test_get_lyrics_prioritizes_youtube_subtitles_over_lrclib_synced(self, mock_lrclib):
+        # Even when LRCLIB has synced lyrics, YouTube subtitles must take precedence!
         mock_lrclib.return_value = unittest.mock.MagicMock(
-            synced_lyrics=None,
-            plain_lyrics="Plain text only",
+            synced_lyrics="[00:05.00] LRCLIB Studio Lyrics",
+            plain_lyrics="LRCLIB Studio Lyrics",
             source="lrclib"
         )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             vtt_file = os.path.join(tmp_dir, "sub.vtt")
             with open(vtt_file, "w") as f:
-                f.write("WEBVTT\n\n00:00:02.000 --> 00:00:05.000\nSynced Subtitle Line\n")
+                f.write("WEBVTT\n\n00:00:02.000 --> 00:00:05.000\nExact Video Subtitle Line\n")
 
             res = LyricsManager.get_lyrics(
                 title="Song",
@@ -108,10 +108,9 @@ Third line here
                 use_lrclib=True,
                 use_yt_subs=True
             )
-            # Should have chosen YouTube subtitles to get synced timestamps!
             self.assertIsNotNone(res.synced_lyrics)
             self.assertEqual(res.source, "youtube_subtitles")
-            self.assertIn("[00:02.00] Synced Subtitle Line", res.synced_lyrics)
+            self.assertIn("[00:02.00] Exact Video Subtitle Line", res.synced_lyrics)
 
 
     @unittest.mock.patch("src.lyrics.requests.get")

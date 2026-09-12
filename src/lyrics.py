@@ -234,20 +234,14 @@ class LyricsManager:
         use_yt_subs: bool = True
     ) -> LyricsResult:
         """
-        Orchestrate lyrics retrieval with intelligent sync hierarchy:
-        1. Tier 1: Query LRCLIB for verified synced lyrics matching track duration (<= 4s diff).
-        2. Tier 2: If LRCLIB has no synced lyrics (or only plain text), fallback to YouTube VTT captions!
-                   YouTube subtitles have timestamps that match the downloaded video audio.
-        3. Tier 3: If no synced lyrics exist anywhere, fallback to LRCLIB plain text.
+        Orchestrate lyrics retrieval with intelligent hierarchy prioritizing YouTube subtitles:
+        1. Tier 1: YouTube Subtitles (timestamped lyrics matching the exact downloaded video audio).
+                   Most faithful to video intros, dialogues, live edits, and tempo variations.
+        2. Tier 2: LRCLIB Synced Lyrics (duration verified within 6s).
+        3. Tier 3: LRCLIB Plain Text.
+        4. Tier 4: lyrics.ovh Plain Text.
         """
-        lrclib_res = None
-        if use_lrclib:
-            lrclib_res = cls.fetch_from_lrclib(title, artist, album, duration)
-            # Tier 1: Verified synced lyrics from studio track
-            if lrclib_res and lrclib_res.synced_lyrics:
-                return lrclib_res
-
-        # Tier 2: YouTube Subtitles (timestamped lyrics matching downloaded audio)
+        # Tier 1: YouTube Subtitles (exact audio match for downloaded video)
         if use_yt_subs and vtt_subtitle_path and os.path.exists(vtt_subtitle_path):
             try:
                 with open(vtt_subtitle_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -258,11 +252,18 @@ class LyricsManager:
             except Exception as e:
                 logger.warning(f"Error parsing subtitle file {vtt_subtitle_path}: {e}")
 
-        # Tier 3: Fallback to LRCLIB plain text if no synced lyrics could be found
+        # Tier 2: LRCLIB Synced Lyrics (verified studio track)
+        lrclib_res = None
+        if use_lrclib:
+            lrclib_res = cls.fetch_from_lrclib(title, artist, album, duration)
+            if lrclib_res and lrclib_res.synced_lyrics:
+                return lrclib_res
+
+        # Tier 3: LRCLIB Plain Text
         if lrclib_res and lrclib_res.plain_lyrics:
             return lrclib_res
 
-        # Tier 4: Fallback to lyrics.ovh plain text
+        # Tier 4: lyrics.ovh Plain Text
         ovh_res = cls.fetch_from_lyricsovh(title, artist)
         if ovh_res and ovh_res.plain_lyrics:
             return ovh_res
