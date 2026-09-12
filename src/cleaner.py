@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
 
 @dataclass
@@ -43,6 +43,7 @@ class TitleCleaner:
         r"remaster(?:ed)?(?:\s+\d{4})?|"
         r"sub\s+español|eng\s+sub|"
         r"prod\.?\s+(?:by\s+)?[^\)\]\}】]+|"
+        r"ncs(?:\s+release)?|"
         r"mv"
         r")"
     )
@@ -69,6 +70,20 @@ class TitleCleaner:
         r"\s+Entertainment$",
     ]
 
+    # Established bands/ensembles that should not be split on & or and
+    KNOWN_BANDS = {
+        "simon & garfunkel", "above & beyond", "kool & the gang", "earth, wind & fire",
+        "crosby, stills, nash & young", "crosby, stills & nash", "emerson, lake & palmer",
+        "blood, sweat & tears", "brooks & dunn", "hall & oates", "daryl hall & john oates",
+        "fito & fitipaldis", "fito y fitipaldis", "florence + the machine", "florence and the machine",
+        "tom petty and the heartbreakers", "tom petty & the heartbreakers", "bob marley & the wailers",
+        "bob marley and the wailers", "joan jett & the blackhearts", "joan jett and the blackhearts",
+        "kc & the sunshine band", "huey lewis & the news", "huey lewis and the news",
+        "nick cave & the bad seeds", "nick cave and the bad seeds", "marina & the diamonds",
+        "marina and the diamonds", "mumford & sons", "the mamas & the papas", "angus & julia stone",
+        "of monsters and men", "iron & wine", "tyler, the creator"
+    }
+
     @classmethod
     def clean_channel_name(cls, channel: Optional[str]) -> str:
         """Strip YouTube channel suffixes like ' - Topic', 'VEVO', ' Official'."""
@@ -78,6 +93,42 @@ class TitleCleaner:
         for pattern in cls.CHANNEL_JUNK:
             name = re.sub(pattern, "", name, flags=re.IGNORECASE).strip()
         return name
+
+    @classmethod
+    def extract_primary_artist(cls, artist_str: Optional[str]) -> Tuple[str, Optional[str]]:
+        """
+        Extract primary artist from joined collaboration strings.
+        e.g.:
+          'DePol, Pol Gutierrez Molina' -> ('DePol', 'Pol Gutierrez Molina')
+          'Jim Yosef & Scarlett' -> ('Jim Yosef', 'Scarlett')
+          'Wuicho kun & Andie Gago' -> ('Wuicho kun', 'Andie Gago')
+          'David Guetta x Bebe Rexha' -> ('David Guetta', 'Bebe Rexha')
+        Preserves established bands with '&' or 'and' (e.g. 'Fito y Fitipaldis', 'Simon & Garfunkel').
+        """
+        if not artist_str:
+            return ("Unknown Artist", None)
+
+        artist_clean = artist_str.strip(' "\'').strip()
+        if not artist_clean:
+            return ("Unknown Artist", None)
+
+        if artist_clean.lower() in cls.KNOWN_BANDS:
+            return (artist_clean, None)
+
+        # Collaboration delimiters: comma, ampersand, x/X, feat/ft/featuring, vs/vs., semicolon, slash
+        pattern = r"(?:\s*,\s*|\s+&\s+|\s+[xX]\s+|\s+(?:feat\.?|ft\.?|featuring)\s+|\s+vs\.?\s+|\s*;\s*|\s+/\s+)"
+        parts = [p.strip() for p in re.split(pattern, artist_clean, flags=re.IGNORECASE) if p.strip()]
+
+        if len(parts) <= 1:
+            return (artist_clean, None)
+
+        # Check if second part starts with an article (e.g. 'Bob Marley & The Wailers')
+        if parts[1].lower().startswith(("the ", "los ", "las ", "el ", "la ", "his ", "her ", "their ")):
+            return (artist_clean, None)
+
+        primary = parts[0]
+        collaborators = ", ".join(parts[1:])
+        return (primary, collaborators)
 
     @classmethod
     def strip_junk(cls, text: str) -> str:
@@ -120,11 +171,15 @@ class TitleCleaner:
         if yt_track and yt_artist:
             cleaned_track = cls.strip_junk(yt_track)
             cleaned_artist = cls.clean_channel_name(yt_artist)
+            primary_artist, extra_artists = cls.extract_primary_artist(cleaned_artist)
+            if extra_artists and not re.search(r"[\(\[\{]\s*(?:feat|ft)\.?\s+", cleaned_track, re.IGNORECASE):
+                cleaned_track = f"{cleaned_track} (feat. {extra_artists})"
             return CleanMetadata(
                 raw_title=video_title,
                 cleaned_title=cleaned_track,
-                artist=cleaned_artist,
-                album_artist=cleaned_artist
+                artist=primary_artist,
+                album_artist=primary_artist,
+                featured_artists=extra_artists
             )
 
         raw = video_title
@@ -174,7 +229,7 @@ class TitleCleaner:
         title = title.strip(' "\'').strip()
         artist = artist.strip(' "\'').strip()
 
-        # Check for feat. / ft. in title and artist
+        # Check for feat. / ft. in title
         featured = None
         feat_match = re.search(r'[\(\[\{]?\s*(?:feat|ft)\.?\s+([^\)\]\}]+)[\)\]\}]?', title, flags=re.IGNORECASE)
         if feat_match:
@@ -185,10 +240,26 @@ class TitleCleaner:
         # If feat was bare without brackets, wrap it nicely
         title = re.sub(r'(?<!\()\b(?:feat|ft)\.?\s+([^\(\[\{\-]+)$', r'(feat. \1)', title, flags=re.IGNORECASE)
 
+        # Extract primary artist and collaborating artists
+        raw_artist = cls.clean_channel_name(artist) or "Unknown Artist"
+        primary_artist, extra_artists = cls.extract_primary_artist(raw_artist)
+
+        # Merge featured artists from title and artist field
+        all_features = []
+        if featured:
+            all_features.append(featured)
+        if extra_artists and extra_artists not in all_features:
+            all_features.append(extra_artists)
+        combined_features = ", ".join(all_features) if all_features else None
+
+        final_title = cls.strip_junk(title)
+        if combined_features and not re.search(r"[\(\[\{]\s*(?:feat|ft)\.?\s+", final_title, re.IGNORECASE):
+            final_title = f"{final_title} (feat. {combined_features})"
+
         return CleanMetadata(
             raw_title=raw,
-            cleaned_title=cls.strip_junk(title),
-            artist=cls.clean_channel_name(artist) or "Unknown Artist",
-            album_artist=cls.clean_channel_name(artist) or "Various Artists",
-            featured_artists=featured
+            cleaned_title=final_title,
+            artist=primary_artist,
+            album_artist=primary_artist,
+            featured_artists=combined_features
         )

@@ -97,6 +97,45 @@ class TestTitleCleaner(unittest.TestCase):
             meta = TitleCleaner.parse_artist_and_title(raw, "Channel")
             self.assertEqual(meta.cleaned_title, exp_title)
 
+    def test_extract_primary_artist(self):
+        cases = [
+            ("DePol, Pol Gutierrez Molina", "DePol", "Pol Gutierrez Molina"),
+            ("Jim Yosef & Scarlett", "Jim Yosef", "Scarlett"),
+            ("Wuicho kun & Andie Gago", "Wuicho kun", "Andie Gago"),
+            ("David Guetta x Bebe Rexha", "David Guetta", "Bebe Rexha"),
+            ("Marshmello feat. Khalid", "Marshmello", "Khalid"),
+            ("Aimee Carty", "Aimee Carty", None),
+            ("Fito y Fitipaldis", "Fito y Fitipaldis", None),
+            ("Bob Marley & The Wailers", "Bob Marley & The Wailers", None),
+            ("Simon & Garfunkel", "Simon & Garfunkel", None),
+            ("Tyler, The Creator", "Tyler, The Creator", None),
+        ]
+        for raw, exp_primary, exp_collab in cases:
+            prim, collab = TitleCleaner.extract_primary_artist(raw)
+            self.assertEqual(prim, exp_primary, f"Primary mismatch for: {raw}")
+            self.assertEqual(collab, exp_collab, f"Collab mismatch for: {raw}")
+
+    def test_multi_artist_title_and_tags(self):
+        # yt-music tags with multiple artists
+        meta = TitleCleaner.parse_artist_and_title(
+            video_title="Quiero Decirte",
+            channel_name="DePol",
+            yt_track="Quiero Decirte",
+            yt_artist="DePol, Pol Gutierrez Molina"
+        )
+        self.assertEqual(meta.artist, "DePol")
+        self.assertEqual(meta.album_artist, "DePol")
+        self.assertEqual(meta.cleaned_title, "Quiero Decirte (feat. Pol Gutierrez Molina)")
+
+        # Raw video title with &
+        meta2 = TitleCleaner.parse_artist_and_title(
+            video_title="Jim Yosef & Scarlett - Volcano [NCS Release]",
+            channel_name="NoCopyrightSounds"
+        )
+        self.assertEqual(meta2.artist, "Jim Yosef")
+        self.assertEqual(meta2.album_artist, "Jim Yosef")
+        self.assertEqual(meta2.cleaned_title, "Volcano (feat. Scarlett)")
+
 
 if __name__ == "__main__":
     unittest.main()
