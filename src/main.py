@@ -172,9 +172,10 @@ class MusicGetter:
                             except Exception as e:
                                 logger.warning(f"Could not save cover.jpg: {e}")
 
-                    # Step 8: Save sidecar .lrc file if lyrics available
-                    if self.config.lyrics.save_lrc and lyrics_res and lyrics_res.synced_lyrics:
-                        LyricsManager.save_lrc_file(final_path, lyrics_res.synced_lyrics)
+                    # Step 8: Save sidecar .lrc file if lyrics available (synced or plain)
+                    lyrics_to_save = lyrics_res.synced_lyrics or lyrics_res.plain_lyrics if lyrics_res else None
+                    if self.config.lyrics.save_lrc and lyrics_to_save:
+                        LyricsManager.save_lrc_file(final_path, lyrics_to_save)
 
                     # Step 9: Tag audio file with Mutagen
                     lyrics_to_embed = lyrics_res.synced_lyrics or lyrics_res.plain_lyrics if lyrics_res else None
@@ -288,9 +289,6 @@ class MusicGetter:
 
             # Remove from database
             self.db.delete_track(yt_id)
-
-        def _cleanup_empty_directories(self, directory: str):
-            pass
 
     def _cleanup_empty_directories(self, directory: str):
         """Recursively delete empty folders up to library_dir."""
@@ -423,8 +421,9 @@ class MusicGetter:
                         use_lrclib=self.config.lyrics.use_lrclib,
                         use_yt_subs=self.config.lyrics.use_youtube_subtitles
                     )
-                    if l_res and l_res.synced_lyrics:
-                        LyricsManager.save_lrc_file(current_path, l_res.synced_lyrics)
+                    lyrics_to_save = l_res.synced_lyrics or l_res.plain_lyrics if l_res else None
+                    if lyrics_to_save:
+                        LyricsManager.save_lrc_file(current_path, lyrics_to_save)
                         self.db.update_track_metadata(
                             youtube_id=yt_id,
                             file_path=current_path,
@@ -458,16 +457,23 @@ class MusicGetter:
 
         logger.info(f"Starting sync cycle for {len(self.config.playlists)} playlist(s)...")
         active_playlist_ids = []
+        has_sync_errors = False
         for pl in self.config.playlists:
             try:
                 pl_id = self.sync_playlist(pl.url, custom_name=pl.name)
                 if pl_id:
                     active_playlist_ids.append(pl_id)
+                else:
+                    has_sync_errors = True
             except Exception as e:
                 logger.error(f"Error syncing playlist {pl.url}: {e}", exc_info=True)
+                has_sync_errors = True
 
         # Automatic cleanup: Remove any song or playlist that is no longer in any list
-        if active_playlist_ids and self.config.organization.cleanup_removed_tracks:
+        # CRITICAL SAFETY CHECK: Never delete songs if any playlist had errors during sync!
+        if has_sync_errors:
+            logger.warning("One or more playlists failed to sync. Skipping orphan cleanup to protect library from accidental deletion.")
+        elif active_playlist_ids and self.config.organization.cleanup_removed_tracks:
             self.cleanup_orphans(active_playlist_ids)
 
         logger.info("Sync cycle completed.")
