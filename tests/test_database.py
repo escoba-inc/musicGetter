@@ -75,6 +75,33 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(tracks[0]["youtube_id"], "id2")
         self.assertEqual(tracks[1]["youtube_id"], "id1")
 
+    def test_orphan_and_stale_playlists(self):
+        self.db.save_track("id1", "/path/1.opus", "Track 1", "Artist 1")
+        self.db.save_track("id2", "/path/2.opus", "Track 2", "Artist 2")
+        self.db.save_track("id3", "/path/3.opus", "Track 3", "Artist 3")
+
+        # PL1 has id1 and id2. PL2 has id2. id3 is in neither.
+        self.db.update_playlist("PL1", "Playlist 1", "https://url/1", ["id1", "id2"])
+        self.db.update_playlist("PL2", "Playlist 2", "https://url/2", ["id2"])
+
+        # Active playlists: PL1 and PL2. id3 is an orphan.
+        orphans = self.db.get_orphan_tracks(["PL1", "PL2"])
+        self.assertEqual(len(orphans), 1)
+        self.assertEqual(orphans[0]["youtube_id"], "id3")
+
+        # If id1 is removed from PL1 (so only id2 remains in PL1)
+        self.db.update_playlist("PL1", "Playlist 1", "https://url/1", ["id2"])
+        orphans_after = self.db.get_orphan_tracks(["PL1", "PL2"])
+        orphan_ids = [o["youtube_id"] for o in orphans_after]
+        self.assertIn("id1", orphan_ids)
+        self.assertIn("id3", orphan_ids)
+        self.assertNotIn("id2", orphan_ids)  # id2 is still in PL1 and PL2!
+
+        # Stale playlist detection (e.g. if PL1 was removed from config and only PL2 is active)
+        stale = self.db.get_stale_playlists(["PL2"])
+        self.assertEqual(len(stale), 1)
+        self.assertEqual(stale[0]["playlist_id"], "PL1")
+
 
 if __name__ == "__main__":
     unittest.main()

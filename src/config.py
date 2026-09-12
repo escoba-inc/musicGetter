@@ -26,6 +26,7 @@ class OrganizationConfig:
     compilation_album_artist: str = "Various Artists"
     generate_m3u8: bool = True
     playlists_dir: str = "/music/playlists"
+    cleanup_removed_tracks: bool = True
 
 
 @dataclass
@@ -174,7 +175,8 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         structure=os.environ.get("STRUCTURE", org_data.get("structure", "standard")).lower(),
         compilation_album_artist=os.environ.get("COMPILATION_ALBUM_ARTIST", org_data.get("compilation_album_artist", "Various Artists")),
         generate_m3u8=_parse_bool(os.environ.get("GENERATE_M3U8", org_data.get("generate_m3u8", True))),
-        playlists_dir=os.environ.get("PLAYLISTS_DIR", org_data.get("playlists_dir", playlists_dir_default))
+        playlists_dir=os.environ.get("PLAYLISTS_DIR", org_data.get("playlists_dir", playlists_dir_default)),
+        cleanup_removed_tracks=_parse_bool(os.environ.get("CLEANUP_REMOVED_TRACKS", org_data.get("cleanup_removed_tracks", True)))
     )
 
     # --- 5. Lyrics Settings ---

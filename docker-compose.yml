@@ -26,6 +26,7 @@ services:
       - COVER_RESOLUTION=3000     # Pristine cover art resolution (up to 3000x3000px)
       - SAVE_COVER_JPG=true       # Save cover.jpg in album folder for Navidrome
       - COMPILATION_ALBUM_ARTIST=Various Artists # Prevents 100 1-song artists cluttering Navidrome
+      - CLEANUP_REMOVED_TRACKS=true # Automatically deletes songs removed from all playlists
     volumes:
       - ./music:/music            # Target music folder shared with Navidrome
       - ./config:/config          # Stores SQLite database (library.db) & optional cookies.txt

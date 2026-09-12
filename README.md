@@ -80,6 +80,7 @@ All options can be defined directly under `environment:` in `docker-compose.yml`
 | `AUDIO_FORMAT` | `"opus"` | Target audio format: `"opus"`, `"m4a"`, or `"mp3"`. |
 | `DAILY_AT` | `"03:00"` | Daily time (`HH:MM`) when the automatic sync runs. |
 | `SYNC_ON_STARTUP` | `"true"` | Check and download new songs as soon as the container boots. |
+| `CLEANUP_REMOVED_TRACKS` | `"true"` | Automatically delete audio files, .lrc sidecars, and empty folders when removed from all playlists. |
 | `LYRICS_ENABLED` | `"true"` | Enable fetching and writing lyrics. |
 | `SAVE_LRC` | `"true"` | Save sidecar `.lrc` files for Navidrome synced karaoke lyrics. |
 | `USE_LRCLIB` | `"true"` | Query LRCLIB for synced lyrics. |

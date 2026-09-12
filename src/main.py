@@ -7,7 +7,7 @@ import shutil
 import sys
 import tempfile
 import time
-from typing import Optional
+from typing import Optional, List
 
 import schedule
 
@@ -63,13 +63,13 @@ class MusicGetter:
 
         return os.path.join(album_dir, filename)
 
-    def sync_playlist(self, playlist_url: str, custom_name: Optional[str] = None):
-        """Synchronize a single YouTube/YouTube Music playlist."""
+    def sync_playlist(self, playlist_url: str, custom_name: Optional[str] = None) -> Optional[str]:
+        """Synchronize a single YouTube/YouTube Music playlist. Returns playlist_id."""
         logger.info(f"Checking playlist: {playlist_url}")
         info = self.downloader.get_playlist_info(playlist_url)
         if not info:
             logger.warning(f"Could not retrieve playlist info from {playlist_url}")
-            return
+            return None
 
         playlist_name = custom_name or info.title
         logger.info(f"Syncing playlist '{playlist_name}' ({len(info.entries)} tracks found)")
@@ -218,18 +218,107 @@ class MusicGetter:
                 playlists_dir=self.config.organization.playlists_dir
             )
 
+        return info.playlist_id
+
+    def cleanup_orphans(self, active_playlist_ids: List[str]):
+        """
+        Delete tracks that are no longer in any active playlist,
+        as well as playlists that have been removed from configuration.
+        """
+        if not self.config.organization.cleanup_removed_tracks:
+            return
+
+        # 1. Clean up stale playlists (removed from config)
+        stale_playlists = self.db.get_stale_playlists(active_playlist_ids)
+        for st_pl in stale_playlists:
+            pl_id = st_pl["playlist_id"]
+            pl_name = st_pl["name"]
+            m3u8_path = os.path.join(
+                self.config.organization.playlists_dir,
+                f"{sanitize_filename(pl_name)}.m3u8"
+            )
+            if os.path.exists(m3u8_path):
+                try:
+                    os.remove(m3u8_path)
+                    logger.info(f"Removed deleted playlist file: {m3u8_path}")
+                except Exception as e:
+                    logger.warning(f"Could not remove playlist file {m3u8_path}: {e}")
+            self.db.delete_playlist(pl_id)
+
+        # 2. Clean up orphan tracks (tracks that belong to 0 active playlists)
+        orphan_tracks = self.db.get_orphan_tracks(active_playlist_ids)
+        if orphan_tracks:
+            logger.info(f"Cleaning up {len(orphan_tracks)} track(s) removed from all playlists...")
+
+        for track in orphan_tracks:
+            yt_id = track["youtube_id"]
+            file_path = track["file_path"]
+            title = track.get("title", yt_id)
+            artist = track.get("artist", "")
+
+            # Remove audio file
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    logger.info(f"Deleted removed track: {artist} - {title} ({file_path})")
+                except Exception as e:
+                    logger.warning(f"Could not delete audio file {file_path}: {e}")
+
+            # Remove sidecar .lrc file if exists
+            base, _ = os.path.splitext(file_path)
+            lrc_path = f"{base}.lrc"
+            if os.path.exists(lrc_path):
+                try:
+                    os.remove(lrc_path)
+                except Exception as e:
+                    logger.debug(f"Could not delete sidecar .lrc: {e}")
+
+            # Remove empty album/artist directories to prevent ghost folders in Navidrome
+            track_dir = os.path.dirname(file_path)
+            self._cleanup_empty_directories(track_dir)
+
+            # Remove from database
+            self.db.delete_track(yt_id)
+
+    def _cleanup_empty_directories(self, directory: str):
+        """Recursively delete empty folders up to library_dir."""
+        try:
+            lib_dir = os.path.abspath(self.config.library_dir)
+            current = os.path.abspath(directory)
+            while current != lib_dir and current.startswith(lib_dir):
+                entries = os.listdir(current)
+                # If directory is empty or only has an orphaned cover.jpg left
+                if entries == ["cover.jpg"] or not entries:
+                    if entries == ["cover.jpg"]:
+                        os.remove(os.path.join(current, "cover.jpg"))
+                    os.rmdir(current)
+                    logger.debug(f"Removed empty directory: {current}")
+                    current = os.path.dirname(current)
+                else:
+                    break
+        except Exception as e:
+            logger.debug(f"Directory cleanup notice: {e}")
+
     def sync_all(self):
-        """Run synchronization across all configured playlists."""
+        """Run synchronization across all configured playlists and prune removed songs."""
         if not self.config.playlists:
-            logger.warning("No playlists configured. Please add playlists to config.yaml.")
+            logger.warning("No playlists configured in docker-compose.yml.")
             return
 
         logger.info(f"Starting sync cycle for {len(self.config.playlists)} playlist(s)...")
+        active_playlist_ids = []
         for pl in self.config.playlists:
             try:
-                self.sync_playlist(pl.url, custom_name=pl.name)
+                pl_id = self.sync_playlist(pl.url, custom_name=pl.name)
+                if pl_id:
+                    active_playlist_ids.append(pl_id)
             except Exception as e:
                 logger.error(f"Error syncing playlist {pl.url}: {e}", exc_info=True)
+
+        # Automatic cleanup: Remove any song or playlist that is no longer in any list
+        if active_playlist_ids and self.config.organization.cleanup_removed_tracks:
+            self.cleanup_orphans(active_playlist_ids)
+
         logger.info("Sync cycle completed.")
 
 

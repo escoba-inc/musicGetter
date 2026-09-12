@@ -157,3 +157,51 @@ class Database:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM tracks ORDER BY downloaded_at DESC")
             return [dict(row) for row in cursor.fetchall()]
+
+    def get_orphan_tracks(self, active_playlist_ids: List[str]) -> List[Dict[str, Any]]:
+        """
+        Return tracks that do not belong to any active playlist.
+        If active_playlist_ids is empty, all tracks are considered orphans.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            if not active_playlist_ids:
+                cursor.execute("SELECT * FROM tracks")
+            else:
+                placeholders = ",".join("?" for _ in active_playlist_ids)
+                cursor.execute(f"""
+                    SELECT * FROM tracks
+                    WHERE youtube_id NOT IN (
+                        SELECT youtube_id FROM playlist_tracks WHERE playlist_id IN ({placeholders})
+                    )
+                """, active_playlist_ids)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def delete_track(self, youtube_id: str):
+        """Remove track from database."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM playlist_tracks WHERE youtube_id = ?", (youtube_id,))
+            cursor.execute("DELETE FROM tracks WHERE youtube_id = ?", (youtube_id,))
+            conn.commit()
+
+    def get_stale_playlists(self, active_playlist_ids: List[str]) -> List[Dict[str, Any]]:
+        """Find playlists in database that are no longer in active configuration."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            if not active_playlist_ids:
+                cursor.execute("SELECT * FROM playlists")
+            else:
+                placeholders = ",".join("?" for _ in active_playlist_ids)
+                cursor.execute(f"""
+                    SELECT * FROM playlists WHERE playlist_id NOT IN ({placeholders})
+                """, active_playlist_ids)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def delete_playlist(self, playlist_id: str):
+        """Delete playlist record and associations."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?", (playlist_id,))
+            cursor.execute("DELETE FROM playlists WHERE playlist_id = ?", (playlist_id,))
+            conn.commit()
