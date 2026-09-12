@@ -128,13 +128,23 @@ class MetadataEnricher:
             itunes_artist = best_match.get("artistName", clean_meta.artist)
             primary_artist, extra_artists = TitleCleaner.extract_primary_artist(itunes_artist)
             track_title = best_match.get("trackName", clean_meta.cleaned_title)
+            # Strip "- Single" or "(Single)" from track title if present
+            track_title = re.sub(r"\s*[-–—]\s*Single$", "", track_title, flags=re.IGNORECASE).strip()
+            track_title = re.sub(r"[\(\[\{]\s*Single\s*[\)\]\}]", "", track_title, flags=re.IGNORECASE).strip()
             if extra_artists and not re.search(r"[\(\[\{]\s*(?:feat|ft)\.?\s+", track_title, re.IGNORECASE):
                 track_title = f"{track_title} (feat. {extra_artists})"
+
+            itunes_album = best_match.get("collectionName", "Singles")
+            # If the collection is a single (e.g. "Song - Single"), unify into "Singles"
+            if re.search(r"(?:[-–—\(\[]\s*single\s*[\)\]]?|^single$)", itunes_album, re.IGNORECASE):
+                album_name = "Singles"
+            else:
+                album_name = itunes_album
 
             return EnrichedMetadata(
                 title=track_title,
                 artist=primary_artist,
-                album=best_match.get("collectionName", "Singles"),
+                album=album_name,
                 album_artist=primary_artist,
                 track_number=best_match.get("trackNumber"),
                 year=year,
@@ -211,13 +221,22 @@ class MetadataEnricher:
             matched_artist = artist_obj.get("name", clean_meta.artist) if isinstance(artist_obj, dict) else clean_meta.artist
             primary_artist, extra_artists = TitleCleaner.extract_primary_artist(matched_artist)
             track_title = best_match.get("title", clean_meta.cleaned_title)
+            # Strip "- Single" or "(Single)" from track title if present
+            track_title = re.sub(r"\s*[-–—]\s*Single$", "", track_title, flags=re.IGNORECASE).strip()
+            track_title = re.sub(r"[\(\[\{]\s*Single\s*[\)\]\}]", "", track_title, flags=re.IGNORECASE).strip()
             if extra_artists and not re.search(r"[\(\[\{]\s*(?:feat|ft)\.?\s+", track_title, re.IGNORECASE):
                 track_title = f"{track_title} (feat. {extra_artists})"
+
+            # If Deezer album is marked as a single, normalize to "Singles"
+            if re.search(r"(?:[-–—\(\[]\s*single\s*[\)\]]?|^single$)", album_title, re.IGNORECASE):
+                album_name = "Singles"
+            else:
+                album_name = album_title
 
             return EnrichedMetadata(
                 title=track_title,
                 artist=primary_artist,
-                album=album_title,
+                album=album_name,
                 album_artist=primary_artist,
                 artwork_bytes=artwork_bytes,
                 artwork_mime="image/jpeg",

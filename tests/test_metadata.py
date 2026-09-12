@@ -79,6 +79,34 @@ class TestMetadataEnricher(unittest.TestCase):
         self.assertEqual(enriched.source, "youtube")
         self.assertIsNotNone(enriched.artwork_bytes)
 
+    @patch("src.metadata.requests.get")
+    def test_itunes_single_normalized_to_singles(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "results": [
+                {
+                    "trackName": "Quiero Decirte - Single",
+                    "artistName": "DePol",
+                    "collectionName": "Quiero Decirte - Single",
+                    "trackNumber": 1,
+                    "releaseDate": "2022-03-27T07:00:00Z",
+                    "primaryGenreName": "Pop",
+                    "artworkUrl100": "",
+                    "trackTimeMillis": 180000
+                }
+            ]
+        }
+        mock_get.return_value = mock_resp
+
+        meta = CleanMetadata(raw_title="DePol - Quiero Decirte", cleaned_title="Quiero Decirte", artist="DePol")
+        enriched = MetadataEnricher.query_itunes(meta, duration=180)
+
+        self.assertIsNotNone(enriched)
+        # Suffix "- Single" should be stripped from title and album unified to "Singles"
+        self.assertEqual(enriched.title, "Quiero Decirte")
+        self.assertEqual(enriched.album, "Singles")
+
 
 if __name__ == "__main__":
     unittest.main()
