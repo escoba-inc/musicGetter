@@ -44,6 +44,7 @@ class TitleCleaner:
         r"sub\s+español|eng\s+sub|"
         r"prod\.?\s+(?:by\s+)?[^\)\]\}】]+|"
         r"ncs(?:\s+release)?|"
+        r"single|"
         r"mv"
         r")"
     )
@@ -150,7 +151,10 @@ class TitleCleaner:
         # 5. Normalize double spaces and trim
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
-        # 6. Clean trailing / leading hyphens, pipes, dots
+        # 6. Strip trailing ' - Single' / ' - EP'
+        cleaned = re.sub(r"\s*[-–—]\s*(?:single|ep)\s*$", "", cleaned, flags=re.IGNORECASE).strip()
+
+        # 7. Clean trailing / leading hyphens, pipes, dots
         cleaned = re.sub(r"^[\s\-\–\—\|\.\,\:\;]+|[\s\-\–\—\|\.\,\:\;]+$", "", cleaned).strip()
         return cleaned
 

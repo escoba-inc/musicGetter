@@ -136,6 +136,17 @@ class TestTitleCleaner(unittest.TestCase):
         self.assertEqual(meta2.album_artist, "Jim Yosef")
         self.assertEqual(meta2.cleaned_title, "Volcano (feat. Scarlett)")
 
+    def test_strip_single_suffix(self):
+        cases = [
+            ("Artist - Song - Single", "Song"),
+            ("Artist - Song (Single)", "Song"),
+            ("Artist - Song [Single]", "Song"),
+            ("Artist - Song - EP", "Song"),
+        ]
+        for raw, exp_title in cases:
+            meta = TitleCleaner.parse_artist_and_title(raw, "Artist")
+            self.assertEqual(meta.cleaned_title, exp_title)
+
 
 if __name__ == "__main__":
     unittest.main()
