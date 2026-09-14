@@ -3,8 +3,10 @@
 import logging
 import os
 import glob
+import re
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +16,75 @@ try:
 except ImportError:
     YT_DLP_AVAILABLE = False
     logger.warning("yt-dlp is not installed in the current environment.")
+
+
+def select_best_subtitle_file(
+    track_temp_dir: str,
+    youtube_id: str,
+    preferred_languages: Optional[List[str]] = None,
+    detected_language: Optional[str] = None
+) -> Optional[str]:
+    """
+    Select the best subtitle file (.vtt) from candidate files matching detected language,
+    audio original (-orig), and preferred language order.
+    Discards unwanted languages (e.g. German machine translations for Spanish songs).
+    """
+    candidates = glob.glob(os.path.join(track_temp_dir, f"{youtube_id}*.vtt"))
+    if not candidates:
+        return None
+
+    # Construct dynamic priority list
+    priorities: List[str] = []
+    if detected_language and detected_language != "unknown":
+        priorities.append(f"{detected_language}.*")
+        priorities.append(f"{detected_language}-orig")
+
+    # YouTube's detected original audio speech recognition track
+    priorities.append(".*-orig")
+
+    if preferred_languages:
+        for p in preferred_languages:
+            if p not in priorities:
+                priorities.append(p)
+    else:
+        for p in ["es.*", "en.*"]:
+            if p not in priorities:
+                priorities.append(p)
+
+    scored_candidates = []
+    for filepath in candidates:
+        filename = os.path.basename(filepath)
+        middle = filename[len(youtube_id):]
+        if middle.startswith("."):
+            middle = middle[1:]
+        if middle.endswith(".vtt"):
+            lang_code = middle[:-4]
+        else:
+            lang_code = middle
+
+        matched_idx = None
+        for idx, pref in enumerate(priorities):
+            clean_pref = pref.strip()
+            if clean_pref.lower() == "all":
+                matched_idx = idx
+                break
+            try:
+                if re.fullmatch(clean_pref, lang_code, flags=re.IGNORECASE) or re.match(clean_pref, lang_code, flags=re.IGNORECASE):
+                    matched_idx = idx
+                    break
+            except re.error:
+                if clean_pref.lower() in lang_code.lower():
+                    matched_idx = idx
+                    break
+
+        if matched_idx is not None:
+            scored_candidates.append((matched_idx, filepath))
+
+    if scored_candidates:
+        scored_candidates.sort(key=lambda x: x[0])
+        return scored_candidates[0][1]
+
+    return None
 
 
 @dataclass
@@ -34,6 +105,7 @@ class DownloadedTrack:
     channel: str = ""
     yt_track: Optional[str] = None
     yt_artist: Optional[str] = None
+    channel_url: Optional[str] = None
 
 
 class Downloader:
@@ -121,7 +193,7 @@ class Downloader:
         os.makedirs(track_temp_dir, exist_ok=True)
         outtmpl = os.path.join(track_temp_dir, "%(id)s.%(ext)s")
 
-        sub_langs = [s.strip() for s in (subtitle_languages or "en.*,es.*,all").split(",") if s.strip()]
+        sub_langs = [s.strip() for s in (subtitle_languages or "es.*,en.*").split(",") if s.strip()]
 
         opts = self._get_base_ydl_opts()
         opts.update({
@@ -132,6 +204,11 @@ class Downloader:
             "subtitleslangs": sub_langs,
             "subtitlesformat": "vtt",
             "noplaylist": True,
+            "extractor_args": {
+                "youtube": {
+                    "skip": ["translated_subs"]
+                }
+            },
         })
 
         # Configure audio format extraction
@@ -181,9 +258,20 @@ class Downloader:
                                    glob.glob(os.path.join(track_temp_dir, f"{youtube_id}*.png"))
                 thumb_path = thumb_candidates[0] if thumb_candidates else None
 
-                # Locate subtitle file
-                sub_candidates = glob.glob(os.path.join(track_temp_dir, f"{youtube_id}*.vtt"))
-                sub_path = sub_candidates[0] if sub_candidates else None
+                # Locate subtitle file matching preferred languages and detected language
+                raw_title = info.get("title", "")
+                channel = info.get("uploader") or info.get("channel", "")
+                channel_url = info.get("channel_url") or info.get("uploader_url")
+
+                from src.lyrics import detect_language
+                detected_lang = detect_language(raw_title, channel)
+
+                sub_path = select_best_subtitle_file(
+                    track_temp_dir,
+                    youtube_id,
+                    sub_langs,
+                    detected_language=detected_lang
+                )
 
                 return DownloadedTrack(
                     youtube_id=youtube_id,
@@ -191,12 +279,65 @@ class Downloader:
                     thumbnail_path=thumb_path,
                     subtitle_path=sub_path,
                     duration=info.get("duration"),
-                    raw_title=info.get("title", ""),
-                    channel=info.get("uploader") or info.get("channel", ""),
+                    raw_title=raw_title,
+                    channel=channel,
                     yt_track=info.get("track"),
-                    yt_artist=info.get("artist")
+                    yt_artist=info.get("artist"),
+                    channel_url=channel_url
                 )
 
         except Exception as e:
             logger.error(f"Error downloading track {youtube_id}: {e}")
             return None
+
+    @classmethod
+    def download_channel_avatar(cls, channel_url: str) -> Optional[bytes]:
+        """Download high-resolution avatar image for a YouTube channel."""
+        if not channel_url:
+            return None
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
+            }
+            resp = requests.get(channel_url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                m = re.search(r'<meta\s+property=["\']og:image["\']\s+content=["\']([^"\']+)["\']', resp.text)
+                if not m:
+                    m = re.search(r'<link\s+rel=["\']image_src["\']\s+href=["\']([^"\']+)["\']', resp.text)
+                if m:
+                    avatar_url = m.group(1)
+                    hi_res_url = re.sub(r"=s\d+(-c-k.*)?", "=s800-c-k-c0x00ffffff-no-rj", avatar_url)
+                    try:
+                        img_resp = requests.get(hi_res_url, headers=headers, timeout=10)
+                        if img_resp.status_code == 200 and len(img_resp.content) > 1000:
+                            return img_resp.content
+                    except Exception:
+                        pass
+                    img_resp = requests.get(avatar_url, headers=headers, timeout=10)
+                    if img_resp.status_code == 200 and len(img_resp.content) > 1000:
+                        return img_resp.content
+        except Exception as e:
+            logger.warning(f"Failed to scrape channel avatar from {channel_url}: {e}")
+
+        if YT_DLP_AVAILABLE:
+            try:
+                ydl_opts = {
+                    "skip_download": True,
+                    "quiet": True,
+                    "no_warnings": True,
+                    "playlist_items": "0",
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(channel_url, download=False)
+                    thumbnails = info.get("thumbnails", [])
+                    if thumbnails:
+                        avatar_url = thumbnails[-1].get("url")
+                        if avatar_url:
+                            img_resp = requests.get(avatar_url, timeout=10)
+                            if img_resp.status_code == 200 and len(img_resp.content) > 1000:
+                                return img_resp.content
+            except Exception as e:
+                logger.debug(f"yt-dlp channel avatar extraction failed for {channel_url}: {e}")
+
+        return None

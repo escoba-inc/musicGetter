@@ -10,6 +10,101 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+SPANISH_WORDS = {
+    "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "en", "y",
+    "que", "qué", "por", "para", "con", "sin", "mi", "tu", "su", "se", "me", "te",
+    "nos", "lo", "al", "más", "mas", "pero", "como", "cómo", "cuando", "cuándo",
+    "donde", "dónde", "quien", "quién", "siempre", "nunca", "todo", "nada", "amor",
+    "noche", "vida", "días", "dias", "mundo", "corazón", "corazon", "yo", "ti", "ella",
+    "él", "beso", "ojos", "quiero", "sé", "se", "ya", "solo", "sólo", "hasta", "tanto",
+    "tiempo", "bonito", "fin", "otra", "otro", "nadie", "cancion", "canción"
+}
+
+ENGLISH_WORDS = {
+    "the", "a", "an", "of", "in", "to", "for", "with", "on", "at", "from", "by", "about",
+    "as", "into", "like", "through", "after", "over", "between", "out", "against", "during",
+    "without", "before", "under", "around", "and", "but", "or", "nor", "so", "yet", "you",
+    "me", "i", "my", "your", "we", "our", "they", "them", "love", "night", "heart", "dont",
+    "cant", "wont", "its", "what", "when", "where", "who", "why", "how", "all", "no", "not",
+    "girl", "boy", "time", "baby", "feat", "ft", "lights", "blinding", "save", "tears",
+    "world", "eyes", "life", "day", "days", "away", "never", "always", "good", "bad", "give",
+    "up", "down", "right", "left", "run", "running", "back", "home", "stay", "tell", "shape"
+}
+
+GERMAN_WORDS = {
+    "der", "die", "das", "ein", "eine", "einer", "einem", "einen", "und", "in", "den",
+    "von", "zu", "mit", "auf", "für", "fur", "ist", "im", "nicht", "dem", "sich", "ich",
+    "du", "wir", "ihr", "sie", "liebe", "nacht", "hast", "alles", "immer", "wenn", "aus"
+}
+
+FRENCH_WORDS = {
+    "le", "la", "les", "un", "une", "des", "du", "de", "et", "en", "que", "qui", "pour",
+    "dans", "sur", "avec", "sans", "mon", "ton", "son", "ce", "cette", "je", "tu", "il",
+    "elle", "nous", "vous", "ils", "pas", "amour", "vie", "temps", "même", "meme"
+}
+
+PORTUGUESE_WORDS = {
+    "o", "a", "os", "as", "um", "uma", "de", "do", "da", "dos", "das", "em", "no", "na",
+    "nos", "nas", "e", "que", "para", "pra", "com", "sem", "meu", "seu", "sua", "você",
+    "voce", "não", "nao", "amor", "vida", "coração", "coracao"
+}
+
+ITALIAN_WORDS = {
+    "il", "lo", "la", "i", "gli", "le", "un", "uno", "una", "di", "del", "della", "dei",
+    "a", "al", "alla", "da", "dal", "in", "con", "su", "per", "tra", "fra", "e", "che",
+    "chi", "non", "io", "tu", "mio", "tuo", "suo", "amore", "notte", "vita"
+}
+
+
+def detect_language(title: str, artist: Optional[str] = None) -> str:
+    """
+    Detect the language of a track from its title and artist.
+    Returns ISO 639-1 code ('es', 'en', 'de', 'fr', 'pt', 'it') or 'unknown'.
+    """
+    text = f"{title or ''} {artist or ''}".lower()
+    scores = {"es": 0, "en": 0, "de": 0, "fr": 0, "pt": 0, "it": 0}
+
+    # Distinctive character markers
+    if re.search(r"[ñáéíóúü¿¡]", text):
+        scores["es"] += 4
+    if re.search(r"[äöüß]", text):
+        scores["de"] += 4
+    if re.search(r"[çœæêëèàâôûîï]", text):
+        scores["fr"] += 4
+    if re.search(r"[ãõ]", text):
+        scores["pt"] += 4
+    if re.search(r"[àèéìòù]", text):
+        scores["it"] += 2
+
+    # Morphological patterns for Spanish and English
+    for token in re.findall(r"\b[a-z]{4,}\b", text):
+        if token.endswith(("ito", "ita", "itos", "itas", "ando", "iendo", "mente")):
+            scores["es"] += 3
+        if token.endswith(("ing", "ight", "ness", "tion", "ment", "ever", "able")):
+            scores["en"] += 3
+
+    # Match tokens against vocabulary
+    tokens = re.findall(r"\b\w+\b", text)
+    for token in tokens:
+        if token in SPANISH_WORDS:
+            scores["es"] += 3
+        if token in ENGLISH_WORDS:
+            scores["en"] += 3
+        if token in GERMAN_WORDS:
+            scores["de"] += 3
+        if token in FRENCH_WORDS:
+            scores["fr"] += 3
+        if token in PORTUGUESE_WORDS:
+            scores["pt"] += 3
+        if token in ITALIAN_WORDS:
+            scores["it"] += 3
+
+    best_lang = max(scores, key=scores.get)
+    if scores[best_lang] > 0:
+        return best_lang
+
+    return "unknown"
+
 
 @dataclass
 class LyricsResult:
@@ -159,6 +254,51 @@ class LyricsManager:
         return None
 
     @classmethod
+    def clean_subtitle_text(cls, text: str) -> str:
+        """
+        Thoroughly clean subtitle text:
+        - Strip HTML/VTT tags like <c>, <c.color...>, </c>, <00:00:01.000>
+        - Strip sound/acoustic tags between brackets or parentheses:
+          Spanish: [música], [musica], [risas], [aplausos], [gritos], [suspiros], [silbidos], [sonido], [guitarra], etc.
+          English: [music], [applause], [cheers], [laughter], [singing], [guitar solo], [beat], [gasp], [sigh], etc.
+          French/German: [musique], [musik], [applaus], etc.
+        - Strip musical notes (♪, ♫, ♩, ♬)
+        - Strip generic audio tags enclosed in [] or () that don't contain lyrics
+        - Normalize whitespace and clean dangling brackets/punctuation.
+        """
+        # Strip HTML/VTT tags
+        clean = re.sub(r"<[^>]+>", "", text)
+
+        # Strip musical notes: ♪, ♫, ♩, ♬
+        clean = re.sub(r"[♪♫♩♬]+", "", clean)
+
+        # Multilingual acoustic markers regex
+        sound_markers = (
+            r"m[uú]sica?|applause?|aplausos?|cheers?|laughter|laughing|risas?|singing|canto|"
+            r"guitar(?:ra|\s+solo)?|drums?(?:\s+solo|\s+beat)?|bater[ií]a|beat|gritos?|screams?|"
+            r"screaming|cheering|suspiros?|sighs?|jadeos?|gasps?|silbidos?|whistle?|whistling|"
+            r"sonidos?|sounds?|audio|ruidos?|noise|crowd|ovaci[oó]n|estribillo|verso|"
+            r"instrumental|silence|silencio|efecto|fx"
+        )
+        # Strip markers in brackets, parentheses, curly braces
+        clean = re.sub(rf"[\(\[\{{]\s*(?:{sound_markers})\s*[\)\]\}}]", "", clean, flags=re.IGNORECASE)
+
+        # Strip any remaining bracketed or parenthesized generic sound descriptions
+        clean = re.sub(r"[\(\[\{][^\(\)\[\]\{\}]*?(?:m[uú]sic|sound|audio|riff|solo|beat)[^\(\)\[\]\{\}]*?[\)\]\}]", "", clean, flags=re.IGNORECASE)
+
+        # Strip dangling brackets
+        clean = re.sub(r"^[\[\(\{]\s*[\]\)\}]$", "", clean).strip()
+
+        # Collapse whitespace
+        clean = re.sub(r"\s+", " ", clean).strip()
+
+        # If no word characters remain, treat as empty
+        if not re.search(r"\w", clean):
+            return ""
+
+        return clean
+
+    @classmethod
     def parse_vtt_to_lrc(cls, vtt_content: str) -> Optional[LyricsResult]:
         """Convert WebVTT subtitles into standard synchronized LRC format."""
         if not vtt_content or "WEBVTT" not in vtt_content:
@@ -191,25 +331,22 @@ class LyricsManager:
                     continue
 
                 raw_text = " ".join(text_lines)
-                # Strip HTML/VTT tags like <c>, <c.color...>, </c>, <00:00:01.000>
-                clean_text = re.sub(r"<[^>]+>", "", raw_text)
-                # Strip non-speech tags: [Music], [Applause], (cheers)
-                clean_text = re.sub(r"[\(\[\{](?:music|applause|cheers|laughter|singing|guitar\s+solo)[\)\]\}]", "", clean_text, flags=re.IGNORECASE)
-                clean_text = re.sub(r"\s+", " ", clean_text).strip()
+                clean_text = cls.clean_subtitle_text(raw_text)
+                if not clean_text:
+                    continue
 
                 # Deduplicate rolling captions
-                if clean_text:
-                    if last_clean_text and clean_text.lower() == last_clean_text.lower():
+                if last_clean_text and clean_text.lower() == last_clean_text.lower():
+                    continue
+                if last_clean_text and clean_text.lower().startswith(last_clean_text.lower()):
+                    if lrc_lines:
+                        lrc_lines[-1] = f"{lrc_lines[-1].split(' ', 1)[0]} {clean_text}"
+                        plain_lines[-1] = clean_text
+                        last_clean_text = clean_text
                         continue
-                    if last_clean_text and clean_text.lower().startswith(last_clean_text.lower()):
-                        if lrc_lines:
-                            lrc_lines[-1] = f"{lrc_lines[-1].split(' ', 1)[0]} {clean_text}"
-                            plain_lines[-1] = clean_text
-                            last_clean_text = clean_text
-                            continue
-                    lrc_lines.append(f"{ts} {clean_text}")
-                    plain_lines.append(clean_text)
-                    last_clean_text = clean_text
+                lrc_lines.append(f"{ts} {clean_text}")
+                plain_lines.append(clean_text)
+                last_clean_text = clean_text
 
         if not lrc_lines:
             return None
