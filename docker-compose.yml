@@ -23,6 +23,7 @@ services:
       - LYRICS_ENABLED=true       # Fetch lyrics from LRCLIB & YouTube subtitles
       - SAVE_LRC=true             # Save synchronized .lrc sidecars for Navidrome
       - USE_YOUTUBE_SUBTITLES=true# Fallback to YouTube captions if LRCLIB has no lyrics
+      - SUBTITLE_LANGUAGES=es.*,en.* # Preferred subtitle languages in order (es.*, en.*)
       - COVER_RESOLUTION=3000     # Pristine cover art resolution (up to 3000x3000px)
       - SAVE_COVER_JPG=true       # Save cover.jpg in album folder for Navidrome
       - COMPILATION_ALBUM_ARTIST=Various Artists # Prevents 100 1-song artists cluttering Navidrome

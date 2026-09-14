@@ -36,7 +36,7 @@ class LyricsConfig:
     save_lrc: bool = True
     use_lrclib: bool = True
     use_youtube_subtitles: bool = True
-    subtitle_languages: str = "en.*,es.*,all"
+    subtitle_languages: str = "es.*,en.*"
 
 
 @dataclass
@@ -199,7 +199,7 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
         save_lrc=_parse_bool(os.environ.get("SAVE_LRC", lyr_data.get("save_lrc", True))),
         use_lrclib=_parse_bool(os.environ.get("USE_LRCLIB", lyr_data.get("use_lrclib", True))),
         use_youtube_subtitles=_parse_bool(os.environ.get("USE_YOUTUBE_SUBTITLES", lyr_data.get("use_youtube_subtitles", True))),
-        subtitle_languages=os.environ.get("SUBTITLE_LANGUAGES", lyr_data.get("subtitle_languages", "en.*,es.*,all"))
+        subtitle_languages=os.environ.get("SUBTITLE_LANGUAGES", lyr_data.get("subtitle_languages", "es.*,en.*"))
     )
 
     # --- 6. Artwork Settings ---
