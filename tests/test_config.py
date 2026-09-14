@@ -14,6 +14,7 @@ class TestConfig(unittest.TestCase):
             self.assertEqual(cfg.audio.format, "opus")
             self.assertEqual(cfg.organization.structure, "standard")
             self.assertTrue(cfg.lyrics.enabled)
+            self.assertEqual(cfg.lyrics.subtitle_languages, "es.*,en.*")
             self.assertTrue(cfg.artwork.embed)
             self.assertEqual(cfg.schedule.daily_at, "03:00")
 
@@ -44,6 +45,7 @@ class TestConfig(unittest.TestCase):
             "LIBRARY_DIR": "/custom/music",
             "DATA_DIR": "/custom/data",
             "COMPILATION_ALBUM_ARTIST": "Various",
+            "SUBTITLE_LANGUAGES": "es.*,en.*,fr.*",
         }
         with patch.dict(os.environ, env, clear=True):
             cfg = load_config()
@@ -57,6 +59,7 @@ class TestConfig(unittest.TestCase):
             self.assertEqual(cfg.library_dir, "/custom/music")
             self.assertEqual(cfg.data_dir, "/custom/data")
             self.assertEqual(cfg.organization.compilation_album_artist, "Various")
+            self.assertEqual(cfg.lyrics.subtitle_languages, "es.*,en.*,fr.*")
 
     def test_load_config_numbered_playlists(self):
         env = {

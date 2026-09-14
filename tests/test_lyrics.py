@@ -142,6 +142,60 @@ Third line here
         self.assertEqual(res.source, "lyrics_ovh")
         self.assertEqual(res.plain_lyrics, "Plain lyrics from lyrics.ovh")
 
+    def test_clean_subtitle_text(self):
+        # Spanish acoustic markers
+        self.assertEqual(LyricsManager.clean_subtitle_text("[Música]"), "")
+        self.assertEqual(LyricsManager.clean_subtitle_text("[musica]"), "")
+        self.assertEqual(LyricsManager.clean_subtitle_text("[Risas]"), "")
+        self.assertEqual(LyricsManager.clean_subtitle_text("[Aplausos]"), "")
+        self.assertEqual(LyricsManager.clean_subtitle_text("(gritos)"), "")
+        self.assertEqual(LyricsManager.clean_subtitle_text("[suspiros]"), "")
+
+        # English acoustic markers
+        self.assertEqual(LyricsManager.clean_subtitle_text("[Music]"), "")
+        self.assertEqual(LyricsManager.clean_subtitle_text("[Applause]"), "")
+        self.assertEqual(LyricsManager.clean_subtitle_text("[Laughter]"), "")
+        self.assertEqual(LyricsManager.clean_subtitle_text("(cheers)"), "")
+        self.assertEqual(LyricsManager.clean_subtitle_text("[Guitar solo]"), "")
+
+        # Musical notes
+        self.assertEqual(LyricsManager.clean_subtitle_text("♪ Sound of silence ♪"), "Sound of silence")
+        self.assertEqual(LyricsManager.clean_subtitle_text("♫ Music playing ♫"), "Music playing")
+
+        # Inline sound tags
+        self.assertEqual(LyricsManager.clean_subtitle_text("[Música] Hoy me desperté pensando en ti"), "Hoy me desperté pensando en ti")
+        self.assertEqual(LyricsManager.clean_subtitle_text("Hello, [Laughter] world!"), "Hello, world!")
+
+    def test_parse_vtt_drops_purged_sound_lines(self):
+        vtt = """WEBVTT
+
+00:00:01.000 --> 00:00:03.000
+[Música]
+
+00:00:03.000 --> 00:00:06.000
+Real Lyric Line Here
+
+00:00:06.000 --> 00:00:08.000
+[Risas]
+"""
+        res = LyricsManager.parse_vtt_to_lrc(vtt)
+        self.assertIsNotNone(res)
+        lines = res.synced_lyrics.splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertIn("Real Lyric Line Here", lines[0])
+
+    def test_detect_language(self):
+        from src.lyrics import detect_language
+        self.assertEqual(detect_language("Quién Diría", "DePol"), "es")
+        self.assertEqual(detect_language("El Fin del Mundo", "Milton Salazar"), "es")
+        self.assertEqual(detect_language("Despacito", "Luis Fonsi"), "es")
+        self.assertEqual(detect_language("Me Porto Bonito", "Bad Bunny"), "es")
+        self.assertEqual(detect_language("Blinding Lights", "The Weeknd"), "en")
+        self.assertEqual(detect_language("Save Your Tears", "The Weeknd"), "en")
+        self.assertEqual(detect_language("Shape of You", "Ed Sheeran"), "en")
+        self.assertEqual(detect_language("Du hast", "Rammstein"), "de")
+        self.assertEqual(detect_language("Tous les mêmes", "Stromae"), "fr")
+
 
 if __name__ == "__main__":
     unittest.main()
