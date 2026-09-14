@@ -26,6 +26,7 @@ class EnrichedMetadata:
     artwork_bytes: Optional[bytes] = None
     artwork_mime: str = "image/jpeg"
     source: str = "youtube"  # "itunes", "deezer", or "youtube"
+    artist_image_bytes: Optional[bytes] = None
 
 
 class MetadataEnricher:
@@ -218,6 +219,23 @@ class MetadataEnricher:
                     logger.debug(f"Failed to fetch Deezer artwork: {e}")
 
             artist_obj = best_match.get("artist", {})
+            artist_pic_url = None
+            if isinstance(artist_obj, dict):
+                artist_pic_url = (
+                    artist_obj.get("picture_xl")
+                    or artist_obj.get("picture_big")
+                    or artist_obj.get("picture_medium")
+                )
+
+            artist_image_bytes = None
+            if artist_pic_url:
+                try:
+                    pic_resp = requests.get(artist_pic_url, headers={"User-Agent": cls.USER_AGENT}, timeout=8)
+                    if pic_resp.status_code == 200 and len(pic_resp.content) > 1000:
+                        artist_image_bytes = pic_resp.content
+                except Exception as e:
+                    logger.debug(f"Failed to fetch Deezer artist picture: {e}")
+
             matched_artist = artist_obj.get("name", clean_meta.artist) if isinstance(artist_obj, dict) else clean_meta.artist
             primary_artist, extra_artists = TitleCleaner.extract_primary_artist(matched_artist)
             track_title = best_match.get("title", clean_meta.cleaned_title)
@@ -240,7 +258,8 @@ class MetadataEnricher:
                 album_artist=primary_artist,
                 artwork_bytes=artwork_bytes,
                 artwork_mime="image/jpeg",
-                source="deezer"
+                source="deezer",
+                artist_image_bytes=artist_image_bytes
             )
 
         except Exception as e:
@@ -294,20 +313,27 @@ class MetadataEnricher:
         """
         # 1. Try iTunes
         result = cls.query_itunes(clean_meta, duration=duration, max_art_res=max_art_res)
-        if result and result.artwork_bytes:
-            return result
 
         # 2. Try Deezer
         deezer_result = cls.query_deezer(clean_meta, duration=duration)
+
+        if result and result.artwork_bytes:
+            if deezer_result and deezer_result.artist_image_bytes:
+                result.artist_image_bytes = deezer_result.artist_image_bytes
+            return result
+
         if deezer_result and deezer_result.artwork_bytes:
             if result:
                 # Merge: iTunes metadata + Deezer artwork
                 result.artwork_bytes = deezer_result.artwork_bytes
+                result.artist_image_bytes = deezer_result.artist_image_bytes
                 return result
             return deezer_result
 
         # If iTunes returned metadata without artwork, keep metadata but fallback artwork
         if result:
+            if deezer_result and deezer_result.artist_image_bytes:
+                result.artist_image_bytes = deezer_result.artist_image_bytes
             if raw_thumbnail_bytes:
                 result.artwork_bytes = cls.process_youtube_thumbnail(raw_thumbnail_bytes)
             return result

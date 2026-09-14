@@ -172,6 +172,24 @@ class MusicGetter:
                             except Exception as e:
                                 logger.warning(f"Could not save cover.jpg: {e}")
 
+                    # Step 7b: Save artist.jpg in artist folder if not already present
+                    safe_artist = sanitize_filename(enriched.artist, fallback="Unknown Artist")
+                    if safe_artist != "Various Artists":
+                        artist_dir = os.path.dirname(dest_dir) if self.config.organization.structure == "standard" else dest_dir
+                        artist_jpg_path = os.path.join(artist_dir, "artist.jpg")
+                        if not os.path.exists(artist_jpg_path):
+                            artist_art = enriched.artist_image_bytes
+                            if not artist_art and downloaded.channel_url:
+                                logger.info(f"Artist photo not found on Deezer/iTunes for {enriched.artist}, fetching YouTube channel avatar from {downloaded.channel_url}")
+                                artist_art = Downloader.download_channel_avatar(downloaded.channel_url)
+                            if artist_art:
+                                try:
+                                    with open(artist_jpg_path, "wb") as af:
+                                        af.write(artist_art)
+                                    logger.info(f"Saved artist image: {artist_jpg_path}")
+                                except Exception as e:
+                                    logger.warning(f"Could not save artist.jpg: {e}")
+
                     # Step 8: Save sidecar .lrc file if lyrics available (synced or plain)
                     lyrics_to_save = lyrics_res.synced_lyrics or lyrics_res.plain_lyrics if lyrics_res else None
                     if self.config.lyrics.save_lrc and lyrics_to_save:
